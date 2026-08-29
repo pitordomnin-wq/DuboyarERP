@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ProductKind" ADD VALUE 'SEMI_FINISHED';
