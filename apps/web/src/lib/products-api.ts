@@ -1,5 +1,13 @@
 import { request } from '@/lib/api'
+import type { LkpMaterialCategory } from '@/lib/production-api'
 import type { ProductKind } from '@/lib/warehouse-api'
+
+export type ProductCoatingRecipeLine = {
+  id?: string
+  category: LkpMaterialCategory
+  enabled: boolean
+  normPerM2Kg?: number | null
+}
 
 export type ProductImage = {
   id: string
@@ -27,6 +35,7 @@ export type Product = {
   description: string | null
   images?: ProductImage[]
   attributes?: ProductAttribute[]
+  coatingRecipe?: ProductCoatingRecipeLine[]
   category?: { id: string; name: string; position: number }
   group?: { id: string; name: string } | null
 }
@@ -42,6 +51,7 @@ export type ProductInput = {
   groupId?: string
   groupName?: string
   attributes?: ProductAttribute[]
+  coatingRecipe?: ProductCoatingRecipeLine[]
 }
 
 export type AttributeTemplate = {

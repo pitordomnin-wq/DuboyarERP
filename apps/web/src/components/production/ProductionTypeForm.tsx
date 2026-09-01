@@ -4,17 +4,28 @@ import { fetchProducts, type Product } from '@/lib/products-api'
 import {
   createProductionType,
   deleteProductionType,
+  INPUT_MODE_LABEL,
+  LAYOUT_ROLE_LABEL,
+  QUANTITY_BASIS_LABEL,
+  RELEASE_TYPE_LABEL,
   updateProductionType,
+  type LayoutMaterialRole,
   type ProductionType,
   type ProductionTypeInput,
+  type ProductionReleaseType,
+  type StageInputMode,
+  type StageQuantityBasis,
 } from '@/lib/production-api'
 import { fetchProductGroups, fetchWarehouses, type ProductGroup, type Warehouse } from '@/lib/warehouse-api'
 
 type InputRow = {
-  mode: 'product' | 'group'
+  mode: StageInputMode
   productId: string
   productGroupId: string
   quantity: number
+  quantityBasis: StageQuantityBasis
+  keyword: string
+  layoutRole: LayoutMaterialRole | ''
 }
 
 type OutputRow = { productId: string; quantity: number }
@@ -26,8 +37,54 @@ type StageDraft = {
   outputs: OutputRow[]
 }
 
-const emptyInput = (): InputRow => ({ mode: 'product', productId: '', productGroupId: '', quantity: 1 })
+const emptyInput = (): InputRow => ({
+  mode: 'PRODUCT',
+  productId: '',
+  productGroupId: '',
+  quantity: 1,
+  quantityBasis: 'M2',
+  keyword: '',
+  layoutRole: '',
+})
+
 const emptyStage = (): StageDraft => ({ name: '', lossPercent: 0, inputs: [], outputs: [] })
+
+function mapInput(input: ProductionType['stages'][number]['inputs'][number]): InputRow {
+  if (input.inputMode === 'LKP_RECIPE') {
+    return { ...emptyInput(), mode: 'LKP_RECIPE', quantity: 0, quantityBasis: 'M2_ORIGINAL' }
+  }
+  if (input.inputMode === 'KEYWORD' || input.layoutRole) {
+    return {
+      mode: 'KEYWORD',
+      productId: '',
+      productGroupId: '',
+      quantity: input.quantity,
+      quantityBasis: input.quantityBasis ?? 'M2',
+      keyword: input.keyword ?? '',
+      layoutRole: input.layoutRole ?? '',
+    }
+  }
+  if (input.productGroupId || input.inputMode === 'GROUP') {
+    return {
+      mode: 'GROUP',
+      productId: '',
+      productGroupId: input.productGroupId ?? '',
+      quantity: input.quantity,
+      quantityBasis: input.quantityBasis ?? 'M2',
+      keyword: '',
+      layoutRole: '',
+    }
+  }
+  return {
+    mode: 'PRODUCT',
+    productId: input.productId ?? '',
+    productGroupId: '',
+    quantity: input.quantity,
+    quantityBasis: input.quantityBasis ?? 'M2',
+    keyword: '',
+    layoutRole: '',
+  }
+}
 
 export function ProductionTypeForm({
   title,
@@ -46,26 +103,15 @@ export function ProductionTypeForm({
   const [finished, setFinished] = useState<Product[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [groups, setGroups] = useState<ProductGroup[]>([])
+  const [defaultReleaseType, setDefaultReleaseType] = useState<ProductionReleaseType>(
+    initial?.defaultReleaseType ?? 'DECK',
+  )
   const [stages, setStages] = useState<StageDraft[]>(
     () =>
       initial?.stages.map((stage) => ({
         name: stage.name,
         lossPercent: stage.lossPercent ?? 0,
-        inputs: stage.inputs.map((input) =>
-          input.productGroupId
-            ? {
-                mode: 'group' as const,
-                productId: '',
-                productGroupId: input.productGroupId,
-                quantity: input.quantity,
-              }
-            : {
-                mode: 'product' as const,
-                productId: input.productId ?? '',
-                productGroupId: '',
-                quantity: input.quantity,
-              },
-        ),
+        inputs: stage.inputs.map(mapInput),
         outputs: stage.outputs.map((output) => ({ productId: output.productId!, quantity: output.quantity })),
       })) ?? [emptyStage()],
   )
@@ -94,18 +140,45 @@ export function ProductionTypeForm({
       name: String(data.get('name') ?? '').trim(),
       productId: String(data.get('productId') ?? ''),
       warehouseId: String(data.get('warehouseId') ?? ''),
+      defaultReleaseType,
+      piecesPerM2: Number(data.get('piecesPerM2')) || undefined,
+      m2PerPackageDeck: Number(data.get('m2PerPackageDeck')) || undefined,
+      m2PerPackageHerringbone: Number(data.get('m2PerPackageHerringbone')) || undefined,
       stages: stages
         .filter((stage) => stage.name.trim())
         .map((stage) => ({
           name: stage.name.trim(),
           lossPercent: stage.lossPercent || 0,
           inputs: stage.inputs
-            .filter((row) => row.quantity > 0 && (row.mode === 'product' ? row.productId : row.productGroupId))
-            .map((row) =>
-              row.mode === 'group'
-                ? { productGroupId: row.productGroupId, quantity: row.quantity }
-                : { productId: row.productId, quantity: row.quantity },
-            ),
+            .filter((row) => row.mode === 'LKP_RECIPE' || row.quantity > 0)
+            .map((row) => {
+              if (row.mode === 'LKP_RECIPE') {
+                return { inputMode: 'LKP_RECIPE' as const, quantity: 0, quantityBasis: 'M2_ORIGINAL' as const }
+              }
+              if (row.mode === 'GROUP') {
+                return {
+                  inputMode: 'GROUP' as const,
+                  productGroupId: row.productGroupId,
+                  quantity: row.quantity,
+                  quantityBasis: row.quantityBasis,
+                }
+              }
+              if (row.mode === 'KEYWORD') {
+                return {
+                  inputMode: 'KEYWORD' as const,
+                  quantity: row.quantity,
+                  quantityBasis: row.quantityBasis,
+                  keyword: row.keyword || undefined,
+                  layoutRole: row.layoutRole || undefined,
+                }
+              }
+              return {
+                inputMode: 'PRODUCT' as const,
+                productId: row.productId,
+                quantity: row.quantity,
+                quantityBasis: row.quantityBasis,
+              }
+            }),
           outputs: stage.outputs.filter((row) => row.productId && row.quantity > 0),
         })),
     }
@@ -157,41 +230,89 @@ export function ProductionTypeForm({
             className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
           />
         </label>
-        <label className="text-xs font-medium text-secondary">
-          Готовая продукция
-          <select
-            name="productId"
-            required
-            key={`product-${finished.length}`}
-            defaultValue={initial?.productId ?? ''}
-            className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
-          >
-            <option value="">Выберите</option>
-            {finished.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.sku ? `${item.sku} · ` : ''}
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs font-medium text-secondary">
-          Склад
-          <select
-            name="warehouseId"
-            required
-            key={`warehouse-${warehouses.length}`}
-            defaultValue={initial?.warehouseId ?? ''}
-            className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
-          >
-            <option value="">Выберите</option>
-            {warehouses.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-medium text-secondary">
+            Готовая продукция
+            <select
+              name="productId"
+              required
+              key={`product-${finished.length}`}
+              defaultValue={initial?.productId ?? ''}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              <option value="">Выберите</option>
+              {finished.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku ? `${item.sku} · ` : ''}
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-secondary">
+            Склад
+            <select
+              name="warehouseId"
+              required
+              key={`warehouse-${warehouses.length}`}
+              defaultValue={initial?.warehouseId ?? ''}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              <option value="">Выберите</option>
+              {warehouses.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-xs font-medium text-secondary">
+            Тип выпуска
+            <select
+              value={defaultReleaseType}
+              onChange={(event) => setDefaultReleaseType(event.target.value as ProductionReleaseType)}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              {Object.entries(RELEASE_TYPE_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-secondary">
+            Шт / м²
+            <input
+              name="piecesPerM2"
+              type="number"
+              step="0.001"
+              defaultValue={initial?.piecesPerM2 ?? 4.972}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
+            />
+          </label>
+          <label className="text-xs font-medium text-secondary">
+            м² / упак (палуба)
+            <input
+              name="m2PerPackageDeck"
+              type="number"
+              step="0.001"
+              defaultValue={initial?.m2PerPackageDeck ?? 0.829}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
+            />
+          </label>
+          <label className="text-xs font-medium text-secondary">
+            м² / упак (ёлка)
+            <input
+              name="m2PerPackageHerringbone"
+              type="number"
+              step="0.001"
+              defaultValue={initial?.m2PerPackageHerringbone ?? 0.992}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
+            />
+          </label>
+        </div>
         {stages.map((stage, index) => (
           <div key={index} className="rounded-md border-2 border-slate-300 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -227,7 +348,9 @@ export function ProductionTypeForm({
                   onChange={(event) => patchStage(index, { lossPercent: Number(event.target.value) || 0 })}
                   className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
                 />
-                <span className="mt-1 block text-[11px] text-secondary">Уменьшает оприходование на этапе</span>
+                <span className="mt-1 block text-[11px] text-secondary">
+                  {index === 1 ? 'На профилировании: 20% потерь площади' : 'Уменьшает оприходование'}
+                </span>
               </label>
             </div>
             <InputLines
@@ -319,21 +442,32 @@ function InputLines({
         <div key={index} className="mt-1 flex flex-wrap gap-2">
           <select
             value={row.mode}
-            onChange={(event) =>
+            onChange={(event) => {
+              const mode = event.target.value as StageInputMode
               onChange(
                 rows.map((item, i) =>
                   i === index
-                    ? { ...item, mode: event.target.value as 'product' | 'group', productId: '', productGroupId: '' }
+                    ? {
+                        ...emptyInput(),
+                        mode,
+                        quantityBasis:
+                          mode === 'LKP_RECIPE'
+                            ? 'M2_ORIGINAL'
+                            : item.quantityBasis,
+                      }
                     : item,
                 ),
               )
-            }
-            className="h-10 w-28 rounded-md border-2 border-slate-300 px-2 text-sm"
+            }}
+            className="h-10 w-36 rounded-md border-2 border-slate-300 px-2 text-sm"
           >
-            <option value="product">Товар</option>
-            <option value="group">Группа</option>
+            {Object.entries(INPUT_MODE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
-          {row.mode === 'product' ? (
+          {row.mode === 'PRODUCT' ? (
             <select
               value={row.productId}
               onChange={(event) =>
@@ -349,7 +483,8 @@ function InputLines({
                 </option>
               ))}
             </select>
-          ) : (
+          ) : null}
+          {row.mode === 'GROUP' ? (
             <select
               value={row.productGroupId}
               onChange={(event) =>
@@ -364,17 +499,72 @@ function InputLines({
                 </option>
               ))}
             </select>
+          ) : null}
+          {row.mode === 'KEYWORD' ? (
+            <>
+              <select
+                value={row.layoutRole}
+                onChange={(event) =>
+                  onChange(
+                    rows.map((item, i) =>
+                      i === index ? { ...item, layoutRole: event.target.value as LayoutMaterialRole | '' } : item,
+                    ),
+                  )
+                }
+                className="h-10 min-w-[180px] flex-1 rounded-md border-2 border-slate-300 px-2 text-sm"
+              >
+                <option value="">Свои ключевые слова</option>
+                {Object.entries(LAYOUT_ROLE_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              {!row.layoutRole ? (
+                <input
+                  value={row.keyword}
+                  onChange={(event) =>
+                    onChange(rows.map((item, i) => (i === index ? { ...item, keyword: event.target.value } : item)))
+                  }
+                  placeholder="ключевые слова"
+                  className="h-10 min-w-[140px] flex-1 rounded-md border-2 border-slate-300 px-2 text-sm"
+                />
+              ) : null}
+            </>
+          ) : null}
+          {row.mode === 'LKP_RECIPE' ? (
+            <span className="flex h-10 flex-1 items-center text-sm text-secondary">Из рецепта покрытия продукции</span>
+          ) : (
+            <>
+              <select
+                value={row.quantityBasis}
+                onChange={(event) =>
+                  onChange(
+                    rows.map((item, i) =>
+                      i === index ? { ...item, quantityBasis: event.target.value as StageQuantityBasis } : item,
+                    ),
+                  )
+                }
+                className="h-10 w-28 rounded-md border-2 border-slate-300 px-2 text-sm"
+              >
+                {Object.entries(QUANTITY_BASIS_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={row.quantity}
+                onChange={(event) =>
+                  onChange(rows.map((item, i) => (i === index ? { ...item, quantity: Number(event.target.value) || 0 } : item)))
+                }
+                className="h-10 w-24 rounded-md border-2 border-slate-300 px-2 text-sm"
+              />
+            </>
           )}
-          <input
-            type="number"
-            min="0.001"
-            step="any"
-            value={row.quantity}
-            onChange={(event) =>
-              onChange(rows.map((item, i) => (i === index ? { ...item, quantity: Number(event.target.value) || 0 } : item)))
-            }
-            className="h-10 w-24 rounded-md border-2 border-slate-300 px-2 text-sm"
-          />
           <button
             type="button"
             onClick={() => onChange(rows.filter((_, i) => i !== index))}

@@ -365,7 +365,7 @@ export class WarehouseService {
     });
   }
 
-  async createGroup(user: AuthUser, name: string) {
+  async createGroup(user: AuthUser, name: string, keywords: string[] = []) {
     const trimmed = name.trim();
     if (!trimmed) throw new BadRequestException({ error: 'empty_name' });
     const existing = await this.prisma.productGroup.findUnique({
@@ -374,7 +374,22 @@ export class WarehouseService {
     });
     if (existing) return existing;
     return this.prisma.productGroup.create({
-      data: { organizationId: user.organizationId, name: trimmed },
+      data: { organizationId: user.organizationId, name: trimmed, keywords },
+      include: { _count: { select: { products: true } } },
+    });
+  }
+
+  async updateGroup(user: AuthUser, id: string, data: { name?: string; keywords?: string[] }) {
+    const group = await this.prisma.productGroup.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
+    if (!group) throw new NotFoundException();
+    return this.prisma.productGroup.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+        ...(data.keywords !== undefined ? { keywords: data.keywords } : {}),
+      },
       include: { _count: { select: { products: true } } },
     });
   }

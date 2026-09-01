@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Pencil } from 'lucide-react'
 import { ProductionTypeForm } from '@/components/production/ProductionTypeForm'
+import { LkpNormsPanel } from '@/components/production/LkpNormsPanel'
+import { ProductGroupsPanel } from '@/components/production/ProductGroupsPanel'
+import { TechCardImportPanel } from '@/components/production/TechCardImportPanel'
 import { Modal } from '@/components/tasks/TaskModal'
 import { CompanyLogo } from '@/components/UserAvatar'
 import { useAuth } from '@/lib/auth'
@@ -108,12 +111,17 @@ function toTypeSummary(item: ProductionType, jobs = 0): ProductionTypeSummary {
 }
 
 function ProductionSection() {
+  const [tab, setTab] = useState<'cards' | 'lkp' | 'groups' | 'import'>('cards')
   const [types, setTypes] = useState<ProductionTypeSummary[]>([])
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<ProductionType | null>(null)
 
-  useEffect(() => {
+  function reloadTypes() {
     void fetchProductionTypes().then(setTypes)
+  }
+
+  useEffect(() => {
+    reloadTypes()
   }, [])
 
   function applySaved(item: ProductionType) {
@@ -130,58 +138,82 @@ function ProductionSection() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-5 md:px-8">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">Этапы производства</h1>
-          <p className="mt-1 text-sm text-secondary">Готовая продукция, склад и последовательность этапов</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
-        >
-          Добавить
-        </button>
+      <div className="mb-4">
+        <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">Производство</h1>
+        <p className="mt-1 text-sm text-secondary">Техкарты, нормы ЛКП и учётные группы</p>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
-        <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-          <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
-            <tr>
-              <th className="border-b border-line px-3 py-2">Название</th>
-              <th className="border-b border-line px-3 py-2">Продукция</th>
-              <th className="border-b border-line px-3 py-2">Этапы</th>
-              <th className="border-b border-line px-3 py-2">Склад</th>
-            </tr>
-          </thead>
-          <tbody>
-            {types.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-3 py-8 text-secondary">
-                  Пока нет
-                </td>
-              </tr>
-            ) : (
-              types.map((item) => (
-                <tr
-                  key={item.id}
-                  className="cursor-pointer border-b border-slate-200 hover:bg-slate-50"
-                  onClick={() => void fetchProductionType(item.id).then(setEditing)}
-                >
-                  <td className="px-3 py-2.5 font-medium text-foreground">{item.name}</td>
-                  <td className="px-3 py-2.5 text-secondary">{item.product.name}</td>
-                  <td className="px-3 py-2.5 text-secondary">{item.stages.map((stage) => stage.name).join(' → ')}</td>
-                  <td className="px-3 py-2.5 text-secondary">{item.warehouse.name}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <TabButton active={tab === 'cards'} onClick={() => setTab('cards')}>
+          Техкарты
+        </TabButton>
+        <TabButton active={tab === 'lkp'} onClick={() => setTab('lkp')}>
+          Нормы ЛКП
+        </TabButton>
+        <TabButton active={tab === 'groups'} onClick={() => setTab('groups')}>
+          Учётные группы
+        </TabButton>
+        <TabButton active={tab === 'import'} onClick={() => setTab('import')}>
+          Импорт Excel
+        </TabButton>
       </div>
+
+      {tab === 'lkp' ? <LkpNormsPanel /> : null}
+      {tab === 'groups' ? <ProductGroupsPanel /> : null}
+      {tab === 'import' ? <TechCardImportPanel onImported={reloadTypes} /> : null}
+
+      {tab === 'cards' ? (
+        <>
+          <div className="mb-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+            >
+              Добавить техкарту
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+              <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
+                <tr>
+                  <th className="border-b border-line px-3 py-2">Название</th>
+                  <th className="border-b border-line px-3 py-2">Продукция</th>
+                  <th className="border-b border-line px-3 py-2">Этапы</th>
+                  <th className="border-b border-line px-3 py-2">Склад</th>
+                </tr>
+              </thead>
+              <tbody>
+                {types.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-8 text-secondary">
+                      Пока нет
+                    </td>
+                  </tr>
+                ) : (
+                  types.map((item) => (
+                    <tr
+                      key={item.id}
+                      className="cursor-pointer border-b border-slate-200 hover:bg-slate-50"
+                      onClick={() => void fetchProductionType(item.id).then(setEditing)}
+                    >
+                      <td className="px-3 py-2.5 font-medium text-foreground">{item.name}</td>
+                      <td className="px-3 py-2.5 text-secondary">{item.product.name}</td>
+                      <td className="px-3 py-2.5 text-secondary">{item.stages.map((stage) => stage.name).join(' → ')}</td>
+                      <td className="px-3 py-2.5 text-secondary">{item.warehouse.name}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
 
       {creating ? (
         <ProductionTypeForm
-          title="Новые этапы"
+          title="Новая техкарта"
           onClose={() => setCreating(false)}
           onSaved={(item) => {
             if (item) applySaved(item)
@@ -203,6 +235,26 @@ function ProductionSection() {
         />
       ) : null}
     </div>
+  )
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-9 rounded-md px-3 text-sm ${active ? 'bg-primary text-on-primary' : 'border-2 border-slate-300 text-secondary'}`}
+    >
+      {children}
+    </button>
   )
 }
 

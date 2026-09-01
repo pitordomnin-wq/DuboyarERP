@@ -30,6 +30,7 @@ const productInclude = {
   attributes: { orderBy: { position: 'asc' as const }, select: attributeSelect },
   category: { select: { id: true, name: true, position: true } },
   group: { select: { id: true, name: true } },
+  coatingRecipe: { orderBy: { category: 'asc' as const } },
 };
 
 const templateInclude = {
@@ -98,6 +99,7 @@ export class ProductsService {
         },
       });
       await this.replaceAttributes(product.id, dto.attributes);
+      await this.replaceCoatingRecipe(product.id, dto.coatingRecipe);
       return this.owned(user, product.id);
     } catch (error) {
       this.rethrowUnique(error);
@@ -124,6 +126,7 @@ export class ProductsService {
         },
       });
       await this.replaceAttributes(id, dto.attributes);
+      await this.replaceCoatingRecipe(id, dto.coatingRecipe);
       return this.owned(user, id);
     } catch (error) {
       this.rethrowUnique(error);
@@ -301,6 +304,24 @@ export class ProductsService {
       .map((item) => ({ name: item.name.trim(), value: item.value.trim() }))
       .filter((item) => item.name && item.value)
       .slice(0, 20);
+  }
+
+  private async replaceCoatingRecipe(
+    productId: string,
+    items?: { category: string; enabled: boolean; normPerM2Kg?: number }[],
+  ) {
+    if (items === undefined) return;
+    await this.prisma.productCoatingRecipeLine.deleteMany({ where: { productId } });
+    const rows = items.filter((item) => item.enabled);
+    if (!rows.length) return;
+    await this.prisma.productCoatingRecipeLine.createMany({
+      data: rows.map((item) => ({
+        productId,
+        category: item.category as never,
+        enabled: true,
+        normPerM2Kg: item.normPerM2Kg ?? null,
+      })),
+    });
   }
 
   private async owned(user: AuthUser, id: string) {

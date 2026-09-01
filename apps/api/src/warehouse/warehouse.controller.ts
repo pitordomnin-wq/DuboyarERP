@@ -10,6 +10,7 @@ import {
   CreateWarehouseCategoryDto,
   CreateWarehouseDto,
   ReorderWarehouseCategoriesDto,
+  UpdateProductGroupDto,
   UpdateStockItemDto,
   UpdateWarehouseCategoryDto,
 } from './dto';
@@ -113,6 +114,11 @@ export class ProductGroupsController {
 
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() body: CreateProductGroupDto) {
-    return this.warehouse.createGroup(user, body.name);
+    return this.warehouse.createGroup(user, body.name, body.keywords ?? []);
+  }
+
+  @Patch(':id')
+  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: UpdateProductGroupDto) {
+    return this.warehouse.updateGroup(user, id, body);
   }
 }

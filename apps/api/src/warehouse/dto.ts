@@ -174,4 +174,22 @@ export class CreateProductGroupDto {
   @MinLength(1)
   @MaxLength(120)
   name!: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  keywords?: string[];
+}
+
+export class UpdateProductGroupDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  keywords?: string[];
 }

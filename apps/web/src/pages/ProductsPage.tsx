@@ -13,8 +13,10 @@ import {
   type ProductInput,
 } from '@/lib/products-api'
 import { PRODUCT_KIND_LABEL, fetchProductGroups, fetchWarehouseCategories, type ProductKind } from '@/lib/warehouse-api'
+import type { ProductCoatingRecipeLine } from '@/lib/products-api'
 import { Modal } from '@/components/tasks/TaskModal'
 import { ProductAttributesEditor } from '@/components/products/ProductAttributesEditor'
+import { CoatingRecipeEditor } from '@/components/production/CoatingRecipeEditor'
 
 export function ProductsPage() {
   const [items, setItems] = useState<Product[]>([])
@@ -172,6 +174,8 @@ function ProductFormModal({
   const attributesRef = useRef<{ name: string; value: string }[]>(
     (initial?.attributes ?? []).map((item) => ({ name: item.name, value: item.value })),
   )
+  const coatingRecipeRef = useRef<ProductCoatingRecipeLine[]>(initial?.coatingRecipe ?? [])
+  const [kind, setKind] = useState<ProductKind>((initial?.kind as ProductKind) ?? 'FINISHED')
 
   pendingRef.current = pending
   useEffect(() => {
@@ -261,6 +265,7 @@ function ProductFormModal({
         ? { groupName }
         : { groupId: String(data.get('groupId') ?? '') || undefined }),
       attributes: attributesRef.current,
+      coatingRecipe: kind === 'FINISHED' ? coatingRecipeRef.current.filter((row) => row.enabled) : undefined,
     }
     if (!input.name || Number.isNaN(input.price)) {
       setError('Укажите название и цену')
@@ -380,12 +385,13 @@ function ProductFormModal({
             Тип
             <select
               name="kind"
-              defaultValue={initial?.kind ?? 'FINISHED'}
+              value={kind}
+              onChange={(event) => setKind(event.target.value as ProductKind)}
               className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
             >
-              {(Object.keys(PRODUCT_KIND_LABEL) as ProductKind[]).map((kind) => (
-                <option key={kind} value={kind}>
-                  {PRODUCT_KIND_LABEL[kind]}
+              {(Object.keys(PRODUCT_KIND_LABEL) as ProductKind[]).map((item) => (
+                <option key={item} value={item}>
+                  {PRODUCT_KIND_LABEL[item]}
                 </option>
               ))}
             </select>
@@ -455,6 +461,14 @@ function ProductFormModal({
           }}
           onError={setError}
         />
+        {kind === 'FINISHED' ? (
+          <CoatingRecipeEditor
+            initial={initial?.coatingRecipe}
+            onChange={(rows) => {
+              coatingRecipeRef.current = rows
+            }}
+          />
+        ) : null}
         <label className="text-xs font-medium text-secondary">
           Описание
           <textarea

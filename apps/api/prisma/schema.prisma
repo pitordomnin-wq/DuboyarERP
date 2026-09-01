@@ -55,6 +55,7 @@ model Organization {
   purchases            Purchase[]
   productionTypes      ProductionType[]
   productionJobs       ProductionJob[]
+  lkpNorms             LkpNorm[]
   mailMessages         MailMessage[]
   roles                Role[]
 }
@@ -336,6 +337,7 @@ model Product {
   stageOutputs   ProductionStageOutput[] @relation("StageOutput")
   stageInputs    ProductionStageInput[] @relation("StageInput")
   productionTypes ProductionType[] @relation("ProductionTypeProduct")
+  coatingRecipe   ProductCoatingRecipeLine[]
 
   @@unique([organizationId, sku])
   @@index([organizationId, kind, name])
@@ -363,6 +365,7 @@ model ProductGroup {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
+  keywords       Json         @default("[]")
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   products       Product[]
@@ -561,6 +564,68 @@ enum DealItemProductionStatus {
   IN_WAREHOUSE
 }
 
+enum ProductionReleaseType {
+  DECK
+  HERRINGBONE
+}
+
+enum StageInputMode {
+  PRODUCT
+  GROUP
+  LKP_RECIPE
+  KEYWORD
+}
+
+enum LkpMaterialCategory {
+  PRIMER
+  LACQUER_OIL
+  PASTE
+  DYE
+  PIGMENT
+}
+
+enum StageQuantityBasis {
+  M2
+  PIECE
+  PACKAGE
+  M2_ORIGINAL
+}
+
+enum LayoutMaterialRole {
+  VENEER_OAK
+  VENEER_DECK
+  VENEER_HERRINGBONE
+  BOX_DECK
+  BOX_HERRINGBONE
+  PACK_UNIVERSAL
+}
+
+model LkpNorm {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category       LkpMaterialCategory
+  normPerM2Kg    Float
+  keywords       Json                @default("[]")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, category])
+  @@index([organizationId])
+}
+
+model ProductCoatingRecipeLine {
+  id          String              @id @default(cuid())
+  productId   String
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category    LkpMaterialCategory
+  enabled     Boolean             @default(true)
+  normPerM2Kg Float?
+
+  @@unique([productId, category])
+  @@index([productId])
+}
+
 model ProductionType {
   id             String             @id @default(cuid())
   organizationId String
@@ -570,6 +635,10 @@ model ProductionType {
   product        Product            @relation("ProductionTypeProduct", fields: [productId], references: [id])
   warehouseId    String
   warehouse      Warehouse          @relation(fields: [warehouseId], references: [id])
+  defaultReleaseType ProductionReleaseType?
+  piecesPerM2    Float              @default(4.972186492063492)
+  m2PerPackageDeck Float            @default(0.8287063893262616)
+  m2PerPackageHerringbone Float     @default(0.9920634920634921)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   stages         ProductionStage[]
@@ -594,14 +663,19 @@ model ProductionStage {
 }
 
 model ProductionStageInput {
-  id             String          @id @default(cuid())
+  id             String              @id @default(cuid())
   stageId        String
-  stage          ProductionStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  stage          ProductionStage     @relation(fields: [stageId], references: [id], onDelete: Cascade)
   productId      String?
-  product        Product?        @relation("StageInput", fields: [productId], references: [id], onDelete: Restrict)
+  product        Product?            @relation("StageInput", fields: [productId], references: [id], onDelete: Restrict)
   productGroupId String?
-  productGroup   ProductGroup?   @relation(fields: [productGroupId], references: [id], onDelete: Restrict)
+  productGroup   ProductGroup?       @relation(fields: [productGroupId], references: [id], onDelete: Restrict)
   quantity       Float
+  inputMode      StageInputMode      @default(PRODUCT)
+  quantityBasis  StageQuantityBasis  @default(M2)
+  lkpCategory    LkpMaterialCategory?
+  keyword        String?
+  layoutRole     LayoutMaterialRole?
 
   @@index([stageId])
   @@index([productId])
@@ -635,6 +709,10 @@ model ProductionJob {
   dealItem       DealItem?            @relation(fields: [dealItemId], references: [id], onDelete: SetNull)
   title          String
   quantity       Float
+  quantityM2     Float
+  releaseType    ProductionReleaseType @default(DECK)
+  pieceCount     Float?
+  packageCount   Float?
   status         ProductionJobStatus  @default(ACTIVE)
   stageStatus    ProductionStageStatus @default(TO_START)
   position       Float                @default(0)

@@ -19,6 +19,8 @@ const emptyToUndefined = Transform(({ value }: { value: unknown }) =>
   value === '' || value === null ? undefined : value,
 );
 
+import { ProductCoatingRecipeLineDto } from '../production/dto';
+
 export class ProductAttributeDto {
   @IsString()
   @MinLength(1)
@@ -87,6 +89,12 @@ export class UpsertProductDto {
   @ValidateNested({ each: true })
   @Type(() => ProductAttributeDto)
   attributes?: ProductAttributeDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductCoatingRecipeLineDto)
+  coatingRecipe?: ProductCoatingRecipeLineDto[];
 }
 
 export class SetProductCatalogDto {

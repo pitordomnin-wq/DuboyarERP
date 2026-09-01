@@ -1157,6 +1157,8 @@ export async function fillParquetDemo(db: DemoDb, actors: DemoActors) {
           dealItemId: dealItem.id,
           title: `${deal.title} · ${dealItem.name}`,
           quantity: dealItem.quantity,
+          quantityM2: dealItem.quantity,
+          releaseType: dealItem.name.toLowerCase().includes('ёлоч') || dealItem.name.toLowerCase().includes('елоч') ? 'HERRINGBONE' : 'DECK',
           status: jobStatus,
           stageStatus,
           position: (stageIndex + 1) * 1000,

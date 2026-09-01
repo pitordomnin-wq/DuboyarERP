@@ -25,6 +25,7 @@ export type WarehouseCategory = {
 export type ProductGroup = {
   id: string
   name: string
+  keywords?: string[]
   _count?: { products: number }
 }
 
@@ -126,10 +127,17 @@ export function fetchProductGroups() {
   return request<ProductGroup[]>('/v1/product-groups')
 }
 
-export function createProductGroup(name: string) {
+export function createProductGroup(name: string, keywords: string[] = []) {
   return request<ProductGroup>('/v1/product-groups', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, keywords }),
+  })
+}
+
+export function updateProductGroup(id: string, input: { name?: string; keywords?: string[] }) {
+  return request<ProductGroup>(`/v1/product-groups/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
   })
 }
 

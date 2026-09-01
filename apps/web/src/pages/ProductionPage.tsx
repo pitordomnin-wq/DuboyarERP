@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal } from '@/components/tasks/TaskModal'
 import {
   STAGE_STATUS_LABEL,
+  RELEASE_TYPE_LABEL,
   completeProductionJob,
   fetchProductionJobs,
   fetchProductionType,
@@ -204,6 +205,9 @@ function JobCardModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const stage = type.stages.find((item) => item.id === job.stageId)
+  const profilingStage = type.stages.find((item) => item.position === 1)
+  const profilingLoss = profilingStage?.lossPercent ?? 20
+  const m2AfterProfiling = job.quantityM2 * Math.max(0, 1 - profilingLoss / 100)
   const last = type.stages[type.stages.length - 1]
   const finishing = Boolean(stage && last && stage.id === last.id)
   const receipts = stage ? stageReceipts(stage, type, finishing) : []
@@ -224,7 +228,13 @@ function JobCardModal({
     <Modal title={job.dealItem?.name ?? job.title} onClose={onClose} wide>
       <div className="mt-4 flex flex-col gap-3 text-sm">
         <p className="text-secondary">
-          {formatBomQty(job.quantity)} {job.dealItem?.unit ?? type.product.unit} · {job.warehouse.name} · {jobStatusLabel(job)}
+          {formatBomQty(job.quantity)} {jobUnit(job, type)} · {RELEASE_TYPE_LABEL[job.releaseType]} ·{' '}
+          {job.warehouse.name} · {jobStatusLabel(job)}
+        </p>
+        <p className="text-xs text-secondary">
+          Исходно {formatBomQty(job.quantityM2)} м² · после профиля {formatBomQty(m2AfterProfiling)} м²
+          {job.pieceCount != null ? ` · ${formatBomQty(job.pieceCount)} шт` : ''}
+          {job.packageCount != null ? ` · ${formatBomQty(job.packageCount)} упак` : ''}
         </p>
         {job.deal ? <p className="text-secondary">Заказ: {job.deal.title}</p> : null}
         {job.status === 'ACTIVE' && stage ? (

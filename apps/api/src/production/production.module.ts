@@ -2,10 +2,11 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ProductionController } from './production.controller';
 import { ProductionService } from './production.service';
+import { LkpNormsService } from './lkp-norms.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [ProductionController],
-  providers: [ProductionService],
+  providers: [ProductionService, LkpNormsService],
 })
 export class ProductionModule {}

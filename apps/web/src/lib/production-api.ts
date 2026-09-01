@@ -2,10 +2,57 @@ import { request } from '@/lib/api'
 
 export type ProductionStageStatus = 'TO_START' | 'IN_PROGRESS'
 export type DealItemProductionStatus = 'NONE' | 'IN_PRODUCTION' | 'IN_WAREHOUSE'
+export type ProductionReleaseType = 'DECK' | 'HERRINGBONE'
+export type StageInputMode = 'PRODUCT' | 'GROUP' | 'LKP_RECIPE' | 'KEYWORD'
+export type StageQuantityBasis = 'M2' | 'PIECE' | 'PACKAGE' | 'M2_ORIGINAL'
+export type LkpMaterialCategory = 'PRIMER' | 'LACQUER_OIL' | 'PASTE' | 'DYE' | 'PIGMENT'
+export type LayoutMaterialRole =
+  | 'VENEER_OAK'
+  | 'VENEER_DECK'
+  | 'VENEER_HERRINGBONE'
+  | 'BOX_DECK'
+  | 'BOX_HERRINGBONE'
+  | 'PACK_UNIVERSAL'
 
 export const STAGE_STATUS_LABEL: Record<ProductionStageStatus, string> = {
   TO_START: 'Начать производство',
   IN_PROGRESS: 'Этап выполнен',
+}
+
+export const RELEASE_TYPE_LABEL: Record<ProductionReleaseType, string> = {
+  DECK: 'Палуба',
+  HERRINGBONE: 'Ёлка',
+}
+
+export const LKP_CATEGORY_LABEL: Record<LkpMaterialCategory, string> = {
+  PRIMER: 'Грунт',
+  LACQUER_OIL: 'Лак / масло',
+  PASTE: 'Паста',
+  DYE: 'Краситель',
+  PIGMENT: 'Пигмент',
+}
+
+export const QUANTITY_BASIS_LABEL: Record<StageQuantityBasis, string> = {
+  M2: 'м²',
+  PIECE: 'шт',
+  PACKAGE: 'упак',
+  M2_ORIGINAL: 'м² после профиля',
+}
+
+export const INPUT_MODE_LABEL: Record<StageInputMode, string> = {
+  PRODUCT: 'Товар',
+  GROUP: 'Группа FIFO',
+  LKP_RECIPE: 'Рецепт ЛКП',
+  KEYWORD: 'По ключевым словам',
+}
+
+export const LAYOUT_ROLE_LABEL: Record<LayoutMaterialRole, string> = {
+  VENEER_OAK: 'Шпон дуб (универсальный)',
+  VENEER_DECK: 'Шпон палуба',
+  VENEER_HERRINGBONE: 'Шпон ёлка',
+  BOX_DECK: 'Короб палуба',
+  BOX_HERRINGBONE: 'Короб ёлка',
+  PACK_UNIVERSAL: 'Упаковка (1 шт/упак)',
 }
 
 export type ProductionStageSummary = {
@@ -30,8 +77,13 @@ export type ProductionBomLine = {
   productId: string | null
   productGroupId?: string | null
   quantity: number
+  inputMode?: StageInputMode
+  quantityBasis?: StageQuantityBasis
+  lkpCategory?: LkpMaterialCategory | null
+  keyword?: string | null
+  layoutRole?: LayoutMaterialRole | null
   product: { id: string; name: string; sku: string | null; unit: string } | null
-  productGroup?: { id: string; name: string } | null
+  productGroup?: { id: string; name: string; keywords?: string[] } | null
 }
 
 export type ProductionStage = ProductionStageSummary & {
@@ -45,6 +97,10 @@ export type ProductionType = {
   name: string
   productId: string
   warehouseId: string
+  defaultReleaseType?: ProductionReleaseType | null
+  piecesPerM2?: number
+  m2PerPackageDeck?: number
+  m2PerPackageHerringbone?: number
   product: { id: string; name: string; sku: string | null; unit: string }
   warehouse: { id: string; name: string }
   stages: ProductionStage[]
@@ -54,6 +110,10 @@ export type ProductionJob = {
   id: string
   title: string
   quantity: number
+  quantityM2: number
+  releaseType: ProductionReleaseType
+  pieceCount: number | null
+  packageCount: number | null
   status: 'ACTIVE' | 'DONE'
   stageStatus: ProductionStageStatus
   stageId: string
@@ -67,16 +127,46 @@ export type ProductionJob = {
   createdAt: string
 }
 
+export type StageInputPayload = {
+  productId?: string
+  productGroupId?: string
+  quantity: number
+  inputMode?: StageInputMode
+  quantityBasis?: StageQuantityBasis
+  lkpCategory?: LkpMaterialCategory
+  keyword?: string
+  layoutRole?: LayoutMaterialRole
+}
+
 export type ProductionTypeInput = {
   name: string
   productId: string
   warehouseId: string
+  defaultReleaseType?: ProductionReleaseType
+  piecesPerM2?: number
+  m2PerPackageDeck?: number
+  m2PerPackageHerringbone?: number
   stages: {
     name: string
     lossPercent?: number
-    inputs: ({ productId: string; quantity: number } | { productGroupId: string; quantity: number })[]
+    inputs: StageInputPayload[]
     outputs: { productId: string; quantity: number }[]
   }[]
+}
+
+export type LkpNorm = {
+  id: string
+  category: LkpMaterialCategory
+  normPerM2Kg: number
+  keywords: string[]
+}
+
+export type ImportTechCardRow = {
+  materialName: string
+  stage: number
+  normDeckM2?: number
+  normHerringboneM2?: number
+  productGroupName?: string
 }
 
 export function fetchProductionTypes() {
@@ -105,6 +195,29 @@ export function deleteProductionType(id: string) {
   return request<void>(`/v1/production/types/${id}`, { method: 'DELETE' })
 }
 
+export function importTechCard(input: {
+  productId: string
+  warehouseId: string
+  defaultReleaseType?: ProductionReleaseType
+  rows: ImportTechCardRow[]
+}) {
+  return request<ProductionType>('/v1/production/types/import', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function fetchLkpNorms() {
+  return request<LkpNorm[]>('/v1/production/lkp-norms')
+}
+
+export function updateLkpNorms(items: { category: LkpMaterialCategory; normPerM2Kg: number; keywords: string[] }[]) {
+  return request<LkpNorm[]>('/v1/production/lkp-norms', {
+    method: 'PUT',
+    body: JSON.stringify({ items }),
+  })
+}
+
 export function fetchProductionJobs(filters?: { typeId?: string; dealId?: string }) {
   const params = new URLSearchParams()
   if (filters?.typeId) params.set('typeId', filters.typeId)
@@ -113,10 +226,10 @@ export function fetchProductionJobs(filters?: { typeId?: string; dealId?: string
   return request<ProductionJob[]>(`/v1/production/jobs${q ? `?${q}` : ''}`)
 }
 
-export function sendDealItemToProduction(dealItemId: string) {
+export function sendDealItemToProduction(dealItemId: string, releaseType?: ProductionReleaseType) {
   return request<ProductionJob>('/v1/production/jobs', {
     method: 'POST',
-    body: JSON.stringify({ dealItemId }),
+    body: JSON.stringify({ dealItemId, releaseType }),
   })
 }
 
@@ -129,6 +242,9 @@ async function postJobAction(id: string, action: 'start' | 'complete') {
     const body = (await res.json().catch(() => ({}))) as { error?: string; name?: string }
     if (body.error === 'insufficient_stock') {
       throw new Error(`Недостаточно на складе: ${body.name ?? 'сырьё'}`)
+    }
+    if (body.error === 'material_not_found') {
+      throw new Error(`Материал не найден на складе: ${body.name ?? ''}`)
     }
     if (body.error === 'type_not_configured') {
       throw new Error('Этапы не настроены в панели управления')

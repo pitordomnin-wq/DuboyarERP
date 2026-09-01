@@ -12,7 +12,7 @@ import {
   updateDealStatus,
   type DealDetail,
 } from '@/lib/sales-api'
-import { sendDealItemToProduction, fetchProductionTypes, type ProductionTypeSummary } from '@/lib/production-api'
+import { sendDealItemToProduction, fetchProductionTypes, RELEASE_TYPE_LABEL, type ProductionReleaseType, type ProductionTypeSummary } from '@/lib/production-api'
 
 const TABS = ['info', 'chat', 'docs', 'production', 'history'] as const
 type Tab = (typeof TABS)[number]
@@ -441,16 +441,22 @@ function ProductionTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: 
   const [types, setTypes] = useState<ProductionTypeSummary[] | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [releaseByItem, setReleaseByItem] = useState<Record<string, ProductionReleaseType>>({})
 
   useEffect(() => {
     void fetchProductionTypes().then(setTypes)
   }, [])
 
-  async function send(itemId: string) {
+  function inferReleaseType(name: string): ProductionReleaseType {
+    const lower = name.toLowerCase()
+    return lower.includes('ёлоч') || lower.includes('елоч') || lower.includes('елка') ? 'HERRINGBONE' : 'DECK'
+  }
+
+  async function send(itemId: string, itemName: string) {
     setBusyId(itemId)
     setError(null)
     try {
-      await sendDealItemToProduction(itemId)
+      await sendDealItemToProduction(itemId, releaseByItem[itemId] ?? inferReleaseType(itemName))
       onChange(await fetchDeal(deal.id))
     } catch {
       setError('Не удалось передать в производство. Проверьте, что этапы настроены в панели управления.')
@@ -463,6 +469,7 @@ function ProductionTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: 
     <div className="flex flex-col gap-3">
       {deal.items.map((item) => {
         const type = types?.find((entry) => entry.productId === item.productId)
+        const releaseType = releaseByItem[item.id] ?? inferReleaseType(item.name)
         return (
           <div key={item.id} className="rounded-md border-2 border-slate-300 p-3">
             <p className="text-sm font-medium text-foreground">{item.name}</p>
@@ -478,14 +485,35 @@ function ProductionTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: 
             ) : !item.productId || !type ? (
               <p className="mt-2 text-sm text-secondary">Этапы не настроены в панели управления</p>
             ) : (
-              <button
-                type="button"
-                disabled={busyId === item.id}
-                onClick={() => void send(item.id)}
-                className="mt-3 h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
-              >
-                Передать в производство
-              </button>
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <label className="text-xs font-medium text-secondary">
+                  Тип выпуска
+                  <select
+                    value={releaseType}
+                    onChange={(event) =>
+                      setReleaseByItem((current) => ({
+                        ...current,
+                        [item.id]: event.target.value as ProductionReleaseType,
+                      }))
+                    }
+                    className="mt-1 h-10 rounded-md border-2 border-slate-300 px-2 text-sm"
+                  >
+                    {Object.entries(RELEASE_TYPE_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={busyId === item.id}
+                  onClick={() => void send(item.id, item.name)}
+                  className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+                >
+                  Передать в производство
+                </button>
+              </div>
             )}
           </div>
         )
