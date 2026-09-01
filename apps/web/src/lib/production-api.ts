@@ -12,6 +12,7 @@ export type ProductionStageSummary = {
   id: string
   name: string
   position: number
+  lossPercent?: number
 }
 
 export type ProductionTypeSummary = {
@@ -24,17 +25,19 @@ export type ProductionTypeSummary = {
   _count: { jobs: number }
 }
 
-export type ProductionStageInput = {
+export type ProductionBomLine = {
   id: string
-  productId: string
+  productId: string | null
+  productGroupId?: string | null
   quantity: number
-  product: { id: string; name: string; sku: string | null; unit: string }
+  product: { id: string; name: string; sku: string | null; unit: string } | null
+  productGroup?: { id: string; name: string } | null
 }
 
 export type ProductionStage = ProductionStageSummary & {
-  outputProductId: string | null
-  outputProduct: { id: string; name: string; sku: string | null; unit: string } | null
-  inputs: ProductionStageInput[]
+  lossPercent: number
+  inputs: ProductionBomLine[]
+  outputs: ProductionBomLine[]
 }
 
 export type ProductionType = {
@@ -42,7 +45,7 @@ export type ProductionType = {
   name: string
   productId: string
   warehouseId: string
-  product: { id: string; name: string; sku: string | null }
+  product: { id: string; name: string; sku: string | null; unit: string }
   warehouse: { id: string; name: string }
   stages: ProductionStage[]
 }
@@ -58,7 +61,7 @@ export type ProductionJob = {
   type: { id: string; name: string; productId: string }
   stage: { id: string; name: string; position: number }
   deal: { id: string; title: string } | null
-  dealItem: { id: string; name: string; productionStatus: DealItemProductionStatus } | null
+  dealItem: { id: string; name: string; unit: string; productionStatus: DealItemProductionStatus } | null
   warehouse: { id: string; name: string }
   createdBy: { id: string; name: string }
   createdAt: string
@@ -70,8 +73,9 @@ export type ProductionTypeInput = {
   warehouseId: string
   stages: {
     name: string
-    outputProductId?: string
-    inputs: { productId: string; quantity: number }[]
+    lossPercent?: number
+    inputs: ({ productId: string; quantity: number } | { productGroupId: string; quantity: number })[]
+    outputs: { productId: string; quantity: number }[]
   }[]
 }
 
@@ -128,6 +132,9 @@ async function postJobAction(id: string, action: 'start' | 'complete') {
     }
     if (body.error === 'type_not_configured') {
       throw new Error('Этапы не настроены в панели управления')
+    }
+    if (body.error === 'empty_group') {
+      throw new Error(`В группе нет товаров: ${body.name ?? ''}`)
     }
     throw new Error('request_failed')
   }

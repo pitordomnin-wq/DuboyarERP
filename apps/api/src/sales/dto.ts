@@ -109,3 +109,31 @@ export class ListDealsQueryDto {
   status?: string;
 }
 
+export class DealPipelineColumnDto {
+  @IsEnum(DealStatus)
+  status!: DealStatus;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  label!: string;
+
+  @IsString()
+  @MinLength(7)
+  @MaxLength(7)
+  color!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  position!: number;
+}
+
+export class UpdateDealPipelineDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => DealPipelineColumnDto)
+  columns!: DealPipelineColumnDto[];
+}
+

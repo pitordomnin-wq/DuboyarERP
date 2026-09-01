@@ -252,12 +252,21 @@ export class AuthService {
     avatarKey?: string | null;
     updatedAt?: Date;
     accessRole?: { pages: string[] } | null;
-    organization: { id: string; name: string };
+    organization: {
+      id: string;
+      name: string;
+      brandAddress?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      logoKey?: string | null;
+      updatedAt?: Date;
+    };
   }) {
     const pages =
       user.accessRole?.pages ??
       (user.role === 'ADMIN' ? [...PAGE_KEYS] : PAGE_KEYS.filter((page) => page !== 'admin'));
     const hasAvatar = Boolean(user.avatarKey);
+    const hasLogo = Boolean(user.organization.logoKey);
     return {
       id: user.id,
       email: user.email,
@@ -273,6 +282,11 @@ export class AuthService {
       organization: {
         id: user.organization.id,
         name: user.organization.name,
+        address: user.organization.brandAddress ?? null,
+        phone: user.organization.phone ?? null,
+        email: user.organization.email ?? null,
+        hasLogo,
+        logoAt: hasLogo && user.organization.updatedAt ? user.organization.updatedAt.toISOString() : null,
       },
     };
   }
@@ -289,10 +303,9 @@ export class AuthService {
   }
 
   private useFixedDevCode(email: string) {
-    if (process.env.NODE_ENV === 'production') {
-      return false;
-    }
-    return email.endsWith('@faverum.local');
+    const allow =
+      process.env.OTP_ALLOW_DEV_CODE === 'true' || process.env.NODE_ENV !== 'production';
+    return allow && email.endsWith('@faverum.local');
   }
 
   private hashOtp(challengeId: string, code: string) {

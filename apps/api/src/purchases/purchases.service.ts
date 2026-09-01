@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../auth/auth-user';
 import { CreatePurchaseDocumentDto, CreatePurchaseDto } from './dto';
 import { buildInvoiceHtml } from '../sales/invoice';
+import { createReceiptWithLot } from '../warehouse/stock-lots';
 
 const listInclude = {
   counterparty: { select: { id: true, name: true } },
@@ -87,17 +88,16 @@ export class PurchasesService {
     }
 
     const posted = await this.prisma.$transaction(async (tx) => {
-      await tx.stockMovement.createMany({
-        data: purchase.items.map((item) => ({
+      for (const item of purchase.items) {
+        await createReceiptWithLot(tx, {
           warehouseId: purchase.warehouseId,
           productId: item.productId,
-          type: StockMovementType.RECEIPT,
           quantity: item.quantity,
           note: `Закупка ${purchase.number}`,
           purchaseId: purchase.id,
           createdById: user.id,
-        })),
-      });
+        });
+      }
       return tx.purchase.update({
         where: { id: purchase.id },
         data: { status: PurchaseStatus.POSTED },
@@ -147,7 +147,7 @@ export class PurchasesService {
         correspondentAccount: counterparty.correspondentAccount,
       },
       buyer: {
-        legalName: org.name,
+        legalName: org.legalName?.trim() || org.name,
         inn: org.inn ?? '',
         kpp: org.kpp,
         legalAddress: org.legalAddress ?? '',
@@ -166,9 +166,28 @@ export class PurchasesService {
   async remove(user: AuthUser, id: string) {
     const purchase = await this.getOwned(user, id);
     if (purchase.status === PurchaseStatus.POSTED) {
-      throw new BadRequestException({ error: 'posted' });
+      for (const item of purchase.items) {
+        const rows = await this.prisma.stockMovement.groupBy({
+          by: ['type'],
+          where: { warehouseId: purchase.warehouseId, productId: item.productId },
+          _sum: { quantity: true },
+        });
+        const balance = rows.reduce((sum, row) => {
+          const qty = row._sum.quantity ?? 0;
+          return sum + (row.type === StockMovementType.RECEIPT ? qty : -qty);
+        }, 0);
+        if (balance < item.quantity) {
+          throw new BadRequestException({ error: 'insufficient_stock', name: item.name });
+        }
+      }
     }
-    await this.prisma.purchase.delete({ where: { id } });
+
+    await this.prisma.$transaction(async (tx) => {
+      if (purchase.status === PurchaseStatus.POSTED) {
+        await tx.stockMovement.deleteMany({ where: { purchaseId: purchase.id } });
+      }
+      await tx.purchase.delete({ where: { id: purchase.id } });
+    });
   }
 
   private async resolveLines(organizationId: string, items: CreatePurchaseDto['items']) {

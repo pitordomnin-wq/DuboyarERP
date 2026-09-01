@@ -1,5 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { BookUser, Paperclip, PenLine, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import {
+  Archive,
+  BookUser,
+  FilePenLine,
+  Inbox,
+  Mail,
+  MailWarning,
+  Paperclip,
+  PenLine,
+  Send,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { Modal } from '@/components/tasks/TaskModal'
 import {
   MAIL_FOLDER_LABEL,
@@ -23,6 +36,17 @@ import {
 } from '@/lib/mail-api'
 
 type MailView = MailFolder | 'BOOK'
+
+const GHOST =
+  'inline-flex h-9 items-center justify-center rounded-xl border border-line bg-white/45 px-3 text-sm text-foreground hover:bg-white/70 disabled:opacity-60'
+
+const FOLDER_ICON: Record<MailFolder, LucideIcon> = {
+  INBOX: Inbox,
+  SENT: Send,
+  DRAFTS: FilePenLine,
+  SPAM: MailWarning,
+  ARCHIVE: Archive,
+}
 
 export function MailPage() {
   const [view, setView] = useState<MailView>('INBOX')
@@ -64,123 +88,165 @@ export function MailPage() {
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
-      <aside className="shrink-0 border-b-2 border-slate-300 md:w-56 md:border-r-2 md:border-b-0">
-        <div className="px-4 py-3 md:px-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Папки</p>
-        </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:px-2">
-          {MAIL_FOLDERS.map((item) => (
+    <div className="relative flex min-h-0 flex-1 flex-col p-3 md:p-4">
+      <div className="glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl md:flex-row">
+        <aside className="flex shrink-0 flex-col border-b border-line md:w-[220px] md:border-r md:border-b-0">
+          <nav className="flex gap-1 overflow-x-auto px-3 py-3 md:flex-col md:px-2">
+            {MAIL_FOLDERS.map((item) => {
+              const Icon = FOLDER_ICON[item]
+              const count = counts
+                ? item === 'INBOX' && counts.unread
+                  ? counts.unread
+                  : counts[item]
+                : 0
+              const unread = item === 'INBOX' && Boolean(counts?.unread)
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setView(item)
+                    setOpened(null)
+                  }}
+                  className={`side-item min-w-[150px] shrink-0 items-center md:min-w-0 ${item === view ? 'side-item-active' : ''}`}
+                >
+                  <Icon size={16} strokeWidth={1.75} className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-sm">{MAIL_FOLDER_LABEL[item]}</span>
+                  {count ? (
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                        unread ? 'bg-accent/15 font-semibold text-accent' : 'text-secondary'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  ) : null}
+                </button>
+              )
+            })}
             <button
-              key={item}
               type="button"
               onClick={() => {
-                setView(item)
+                setView('BOOK')
                 setOpened(null)
               }}
-              className={`min-w-[140px] shrink-0 rounded-md px-3 py-2 text-left md:min-w-0 ${
-                item === view ? 'bg-slate-200 text-foreground' : 'text-secondary hover:bg-slate-100'
+              className={`side-item min-w-[150px] shrink-0 items-center md:min-w-0 ${view === 'BOOK' ? 'side-item-active' : ''}`}
+            >
+              <BookUser size={16} strokeWidth={1.75} className="shrink-0" />
+              <span className="text-sm">Адресная книга</span>
+            </button>
+          </nav>
+        </aside>
+
+        {view === 'BOOK' ? (
+          <AddressBookPage onCompose={composeTo} />
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <section
+              className={`flex min-w-0 flex-col md:w-[340px] md:shrink-0 md:border-r md:border-line ${
+                opened ? 'hidden md:flex' : 'w-full'
               }`}
             >
-              <span className="text-sm font-medium">{MAIL_FOLDER_LABEL[item]}</span>
-              {counts ? (
-                <span className="ml-2 text-xs tabular-nums text-secondary">
-                  {item === 'INBOX' && counts.unread ? counts.unread : counts[item] || ''}
-                </span>
-              ) : null}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              setView('BOOK')
-              setOpened(null)
-            }}
-            className={`min-w-[140px] shrink-0 rounded-md px-3 py-2 text-left md:min-w-0 ${
-              view === 'BOOK' ? 'bg-slate-200 text-foreground' : 'text-secondary hover:bg-slate-100'
-            }`}
-          >
-            <span className="text-sm font-medium">Адресная книга</span>
-          </button>
-        </nav>
-      </aside>
-
-      {view === 'BOOK' ? (
-        <AddressBookPage onCompose={composeTo} />
-      ) : (
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <section className={`flex min-w-0 flex-col border-slate-300 md:w-[360px] md:shrink-0 md:border-r-2 ${opened ? 'hidden md:flex' : 'w-full'}`}>
-            <header className="flex h-12 shrink-0 items-center border-b-2 border-slate-300 px-4">
-              <h1 className="text-sm font-semibold text-foreground">{MAIL_FOLDER_LABEL[folder]}</h1>
-            </header>
-            <div className="min-h-0 flex-1 overflow-auto">
-              {loading ? (
-                <p className="px-4 py-6 text-sm text-secondary">Загрузка</p>
-              ) : items.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-secondary">Писем нет</p>
-              ) : (
-                items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => void open(item.id)}
-                    className={`block w-full border-b border-slate-200 px-4 py-3 text-left ${
-                      opened?.id === item.id ? 'bg-slate-100' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <p className={`truncate text-sm ${item.readAt ? 'font-medium text-foreground' : 'font-semibold text-foreground'}`}>
-                      {peer(item, folder)}
-                    </p>
-                    <p className="truncate text-sm text-foreground">{item.subject || '(без темы)'}</p>
-                    <p className="mt-0.5 truncate text-xs text-secondary">
-                      {item.attachments?.length ? (
-                        <span className="mr-1.5 inline-flex items-center gap-0.5 text-foreground">
-                          <Paperclip size={12} strokeWidth={2} />
-                          {item.attachments.length}
-                        </span>
+              <header className="flex h-12 shrink-0 items-center border-b border-line px-4">
+                <h1 className="text-sm font-semibold tracking-[-0.02em] text-foreground">
+                  {MAIL_FOLDER_LABEL[folder]}
+                </h1>
+              </header>
+              <div className="min-h-0 flex-1 overflow-auto">
+                {loading ? (
+                  <p className="px-4 py-6 text-sm text-secondary">Загрузка</p>
+                ) : items.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-secondary">Писем нет</p>
+                ) : (
+                  items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => void open(item.id)}
+                      className={`relative flex w-full gap-3 border-b border-line px-4 py-3 text-left last:border-b-0 ${
+                        opened?.id === item.id
+                          ? 'bg-slate-200 text-foreground'
+                          : 'text-foreground hover:bg-slate-100'
+                      }`}
+                    >
+                      {opened?.id === item.id ? (
+                        <span className="absolute inset-y-0 left-0 w-[3px] bg-primary" />
                       ) : null}
-                      {preview(item.body) || (item.attachments?.length ? 'Вложение' : '')}
-                    </p>
-                    <p className="mt-1 text-xs text-secondary">{formatDate(item.createdAt)}</p>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${item.readAt ? 'bg-transparent' : 'bg-accent'}`}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-start justify-between gap-2">
+                          <span
+                            className={`truncate text-sm ${item.readAt ? 'font-medium' : 'font-semibold'} text-foreground`}
+                          >
+                            {peer(item, folder)}
+                          </span>
+                          <span className="shrink-0 text-[11px] tabular-nums text-secondary">
+                            {formatListDate(item.createdAt)}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm text-foreground">
+                          {item.subject || '(без темы)'}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-secondary">
+                          {item.attachments?.length ? (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 text-foreground">
+                              <Paperclip size={12} strokeWidth={2} />
+                              {item.attachments.length}
+                            </span>
+                          ) : null}
+                          <span className="truncate">
+                            {preview(item.body) || (item.attachments?.length ? 'Вложение' : '')}
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
 
-          <section className={`min-h-0 min-w-0 flex-1 flex-col ${opened ? 'flex' : 'hidden md:flex'}`}>
-            {opened ? (
-              <MessageView
-                item={opened}
-                onReply={() => setCompose(opened)}
-                onMove={(next) => void move(opened.id, next)}
-                onClose={() => setOpened(null)}
-                onDelete={async () => {
-                  await deleteMail(opened.id)
-                  setOpened(null)
-                  await reload()
-                }}
-                onSendDraft={async () => {
-                  await sendDraft(opened.id)
-                  setView('SENT')
-                  setOpened(null)
-                  await reload('SENT')
-                }}
-              />
-            ) : (
-              <p className="px-6 py-10 text-sm text-secondary">Выберите письмо</p>
-            )}
-          </section>
-        </div>
-      )}
+            <section className={`min-h-0 min-w-0 flex-1 flex-col ${opened ? 'flex' : 'hidden md:flex'}`}>
+              {opened ? (
+                <MessageView
+                  item={opened}
+                  onReply={() => setCompose(opened)}
+                  onMove={(next) => void move(opened.id, next)}
+                  onClose={() => setOpened(null)}
+                  onDelete={async () => {
+                    await deleteMail(opened.id)
+                    setOpened(null)
+                    await reload()
+                  }}
+                  onSendDraft={async () => {
+                    await sendDraft(opened.id)
+                    setView('SENT')
+                    setOpened(null)
+                    await reload('SENT')
+                  }}
+                />
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/55 text-secondary">
+                    <Mail size={22} strokeWidth={1.75} />
+                  </span>
+                  <p className="mt-3 text-sm font-medium text-foreground">Выберите письмо</p>
+                  <p className="mt-1 max-w-xs text-xs text-secondary">Откройте сообщение из списка слева</p>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
 
       {compose ? null : (
         <button
           type="button"
           onClick={() => setCompose('new')}
-          className="fixed right-5 bottom-5 z-30 flex h-12 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-on-primary"
+          className="absolute right-7 bottom-7 z-30 flex h-11 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20"
         >
-          <PenLine size={18} strokeWidth={2} />
+          <PenLine size={16} strokeWidth={2} />
           Написать
         </button>
       )}
@@ -214,10 +280,10 @@ function AddressBookPage({ onCompose }: { onCompose: (name: string, email: strin
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center border-b-2 border-slate-300 px-4">
-        <h1 className="text-sm font-semibold text-foreground">Адресная книга</h1>
+      <header className="flex h-12 shrink-0 items-center border-b border-line px-4">
+        <h1 className="text-sm font-semibold tracking-[-0.02em] text-foreground">Адресная книга</h1>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 md:px-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 md:px-6">
         <AddressBookList book={book} tab={tab} query={query} onTab={setTab} onQuery={setQuery} onPick={onCompose} />
       </div>
     </div>
@@ -254,29 +320,39 @@ function AddressBookList({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex rounded-md border-2 border-slate-300">
+      <div className="flex gap-1">
         <button
           type="button"
           onClick={() => onTab('employees')}
-          className={`flex-1 px-3 py-2 text-sm ${tab === 'employees' ? 'bg-slate-100 font-medium text-foreground' : 'text-secondary'}`}
+          className={`tab-item ${tab === 'employees' ? 'tab-item-active' : ''}`}
         >
           Сотрудники
+          {book ? (
+            <span className="ml-2 rounded-full bg-white/60 px-1.5 py-0.5 text-[11px] tabular-nums text-secondary">
+              {book.employees.length}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
           onClick={() => onTab('counterparties')}
-          className={`flex-1 px-3 py-2 text-sm ${tab === 'counterparties' ? 'bg-slate-100 font-medium text-foreground' : 'text-secondary'}`}
+          className={`tab-item ${tab === 'counterparties' ? 'tab-item-active' : ''}`}
         >
           Контрагенты
+          {book ? (
+            <span className="ml-2 rounded-full bg-white/60 px-1.5 py-0.5 text-[11px] tabular-nums text-secondary">
+              {book.counterparties.length}
+            </span>
+          ) : null}
         </button>
       </div>
       <input
         value={query}
         onChange={(event) => onQuery(event.target.value)}
         placeholder="Поиск по имени или почте"
-        className="h-10 rounded-md border-2 border-slate-300 px-3 text-sm outline-none focus:border-slate-500"
+        className="h-10 rounded-xl border border-line bg-white/45 px-3 text-sm outline-none focus:border-accent"
       />
-      <div className="overflow-auto rounded-md border-2 border-slate-300 bg-white">
+      <div className="overflow-auto rounded-xl border border-line bg-white/35">
         {!book ? (
           <p className="px-3 py-6 text-sm text-secondary">Загрузка</p>
         ) : rows.length === 0 ? (
@@ -287,11 +363,11 @@ function AddressBookList({
               key={entry.id}
               type="button"
               onClick={() => onPick(entry.name, entry.email)}
-              className="block w-full border-b border-slate-200 px-3 py-2.5 text-left last:border-b-0 hover:bg-slate-50"
+              className="block w-full border-b border-line px-3 py-2.5 text-left last:border-b-0 hover:bg-white/50"
             >
               <p className="text-sm font-medium text-foreground">{entry.name}</p>
               <p className="text-xs text-secondary">{entry.email}</p>
-              {'contactName' in entry && entry.contactName ? (
+              {'contactName' in entry && typeof entry.contactName === 'string' && entry.contactName ? (
                 <p className="text-xs text-secondary">{entry.contactName}</p>
               ) : null}
             </button>
@@ -319,61 +395,61 @@ function MessageView({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="shrink-0 border-b-2 border-slate-300 px-5 py-4">
+      <header className="shrink-0 border-b border-line px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-[-0.03em] text-foreground">{item.subject || '(без темы)'}</h2>
           {onClose ? (
-            <button type="button" className="text-sm text-secondary" onClick={onClose}>
+            <button type="button" className="text-sm text-secondary hover:text-foreground" onClick={onClose}>
               Закрыть
             </button>
           ) : null}
         </div>
-        <p className="mt-2 text-sm text-secondary">
+        <p className="mt-2 text-sm text-foreground/80">
           От: {item.fromName} &lt;{item.fromAddress}&gt;
         </p>
-        <p className="text-sm text-secondary">
+        <p className="text-sm text-foreground/80">
           Кому: {item.toName} &lt;{item.toAddress}&gt;
         </p>
         <p className="mt-1 text-xs text-secondary">{formatDate(item.createdAt)}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {item.folder === 'DRAFTS' ? (
             <>
-              <button type="button" onClick={onReply} className="h-9 rounded-md bg-primary px-3 text-sm font-semibold text-on-primary">
+              <button type="button" onClick={onReply} className="inline-flex h-9 items-center rounded-xl bg-primary px-3 text-sm font-semibold text-on-primary">
                 Продолжить
               </button>
-              <button type="button" onClick={onSendDraft} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+              <button type="button" onClick={onSendDraft} className={GHOST}>
                 Отправить
               </button>
-              <button type="button" onClick={onDelete} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+              <button type="button" onClick={onDelete} className={GHOST}>
                 Удалить
               </button>
             </>
           ) : (
             <>
               {item.folder !== 'SENT' ? (
-                <button type="button" onClick={onReply} className="h-9 rounded-md bg-primary px-3 text-sm font-semibold text-on-primary">
+                <button type="button" onClick={onReply} className="inline-flex h-9 items-center rounded-xl bg-primary px-3 text-sm font-semibold text-on-primary">
                   Ответить
                 </button>
               ) : null}
               {item.folder !== 'ARCHIVE' ? (
-                <button type="button" onClick={() => onMove('ARCHIVE')} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+                <button type="button" onClick={() => onMove('ARCHIVE')} className={GHOST}>
                   В архив
                 </button>
               ) : (
-                <button type="button" onClick={() => onMove('INBOX')} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+                <button type="button" onClick={() => onMove('INBOX')} className={GHOST}>
                   Во входящие
                 </button>
               )}
               {item.folder !== 'SPAM' ? (
-                <button type="button" onClick={() => onMove('SPAM')} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+                <button type="button" onClick={() => onMove('SPAM')} className={GHOST}>
                   Спам
                 </button>
               ) : (
                 <>
-                  <button type="button" onClick={() => onMove('INBOX')} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+                  <button type="button" onClick={() => onMove('INBOX')} className={GHOST}>
                     Не спам
                   </button>
-                  <button type="button" onClick={onDelete} className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm">
+                  <button type="button" onClick={onDelete} className={GHOST}>
                     Удалить
                   </button>
                 </>
@@ -383,7 +459,7 @@ function MessageView({
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-        <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{item.body}</p>
+        <p className="whitespace-pre-wrap text-[15px] leading-7 text-foreground">{item.body}</p>
         <AttachmentList
           messageId={item.id}
           items={item.attachments ?? []}
@@ -418,7 +494,9 @@ function ComposeModal({
   const [subject, setSubject] = useState(
     reply ? replySubject(initial?.subject ?? '') : initial?.subject ?? '',
   )
-  const [body, setBody] = useState(reply ? quote(initial) : initial?.body ?? '')
+  const [body, setBody] = useState(
+    reply ? (initial ? quote(initial) : '') : initial?.body ?? '',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -534,13 +612,13 @@ function ComposeModal({
                 setToName('')
               }}
               placeholder="name@example.com"
-              className="h-10 min-w-0 flex-1 rounded-md border-2 border-slate-300 px-3 text-sm text-foreground"
+              className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-white/45 px-3 text-sm text-foreground outline-none focus:border-accent"
             />
             <button
               type="button"
               aria-label="Адресная книга"
               onClick={() => setBookOpen(true)}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border-2 border-slate-300 text-foreground hover:bg-slate-50"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line bg-white/45 text-foreground hover:bg-white/70"
             >
               <BookUser size={18} strokeWidth={1.75} />
             </button>
@@ -552,14 +630,14 @@ function ComposeModal({
           <input
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
-            className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm text-foreground"
+            className="mt-1 h-10 w-full rounded-xl border border-line bg-white/45 px-3 text-sm text-foreground outline-none focus:border-accent"
           />
         </label>
         <textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
           rows={10}
-          className="rounded-md border-2 border-slate-300 px-3 py-2 text-sm text-foreground"
+          className="rounded-xl border border-line bg-white/45 px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
         />
         <AttachmentList
           messageId={draftId}
@@ -583,10 +661,10 @@ function ComposeModal({
               type="button"
               disabled={busy || attachments.length >= 10}
               onClick={() => fileInput.current?.click()}
-              className="inline-flex h-10 items-center gap-2 rounded-md border-2 border-slate-300 px-3 text-sm"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white/45 px-3 text-sm disabled:opacity-60"
             >
               <Paperclip size={16} strokeWidth={2} />
-              Вложить
+              Приложить файл
             </button>
           </div>
           <div className="flex gap-2">
@@ -594,11 +672,11 @@ function ComposeModal({
               type="button"
               disabled={busy}
               onClick={() => void save(true)}
-              className="h-10 rounded-md border-2 border-slate-300 px-4 text-sm"
+              className="h-10 rounded-xl border border-line bg-white/45 px-4 text-sm disabled:opacity-60"
             >
               Черновик
             </button>
-            <button type="submit" disabled={busy} className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary">
+            <button type="submit" disabled={busy} className="h-10 rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60">
               Отправить
             </button>
           </div>
@@ -652,14 +730,14 @@ function AddressBookPopup({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [onClose])
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
-      <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-foreground/40" onClick={onClose} />
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center">
+      <button type="button" aria-label="Закрыть" className="glass-scrim absolute inset-0" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="address-book-title"
-        className="relative z-10 max-h-[85vh] w-full max-w-lg overflow-auto rounded-t-2xl bg-white p-6 sm:rounded-2xl"
+        className="glass-strong relative z-10 max-h-[85vh] w-full max-w-lg overflow-auto rounded-t-3xl p-6 sm:rounded-3xl"
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id="address-book-title" className="text-lg font-semibold tracking-[-0.03em] text-foreground">
@@ -671,7 +749,8 @@ function AddressBookPopup({
         </div>
         <AddressBookList book={book} tab={tab} query={query} onTab={onTab} onQuery={onQuery} onPick={onPick} />
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -713,7 +792,7 @@ function AttachmentList({
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-secondary">Вложения</p>
       <ul className="flex flex-col gap-2">
         {items.map((item) => (
-          <li key={item.id} className="flex items-center gap-2 rounded-md border-2 border-slate-300 bg-white px-3 py-2">
+          <li key={item.id} className="flex items-center gap-2 rounded-xl border border-line bg-white/45 px-3 py-2">
             <button
               type="button"
               onClick={() => (messageId ? setPreview(item) : undefined)}
@@ -785,14 +864,14 @@ function AttachmentPreview({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-foreground/50" onClick={onClose} />
+      <button type="button" aria-label="Закрыть" className="glass-scrim absolute inset-0" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="attachment-preview-title"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white"
+        className="glass-strong relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl"
       >
-        <div className="flex items-center justify-between gap-3 border-b-2 border-slate-300 px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
           <h2 id="attachment-preview-title" className="truncate text-sm font-semibold text-foreground">
             {name}
           </h2>
@@ -809,7 +888,7 @@ function AttachmentPreview({
           {mimeType.startsWith('image/') ? (
             <img src={url} alt={name} className="mx-auto max-h-[75vh] max-w-full object-contain" />
           ) : mimeType === 'application/pdf' ? (
-            <iframe title={name} src={url} className="h-[75vh] w-full rounded-md border-2 border-slate-300 bg-white" />
+            <iframe title={name} src={url} className="h-[75vh] w-full rounded-xl border border-line bg-white" />
           ) : (
             <p className="px-2 py-10 text-center text-sm text-secondary">
               {isPreviewable(mimeType) ? 'Не удалось показать файл' : 'Предпросмотр недоступен — скачайте файл'}
@@ -828,6 +907,15 @@ function peer(item: MailMessage, folder: MailFolder) {
 
 function preview(body: string) {
   return body.replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
+function formatListDate(value: string) {
+  const date = new Date(value)
+  const now = new Date()
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  }
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
 
 function formatDate(value: string) {

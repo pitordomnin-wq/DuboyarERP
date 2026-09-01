@@ -13,5 +13,10 @@ export type AuthUser = {
   organization: {
     id: string;
     name: string;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    hasLogo: boolean;
+    logoAt: string | null;
   };
 };

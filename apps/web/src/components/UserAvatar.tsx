@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { companyLogoUrl } from '@/lib/organization-api'
 
 export function userAvatarUrl(id: string, version?: string | null) {
   const query = version ? `?v=${encodeURIComponent(version)}` : ''
@@ -8,6 +9,47 @@ export function userAvatarUrl(id: string, version?: string | null) {
 export function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+}
+
+export function CompanyLogo({
+  name,
+  hasLogo,
+  version,
+  size = 96,
+  className = '',
+}: {
+  name: string
+  hasLogo?: boolean
+  version?: string | null
+  size?: number
+  className?: string
+}) {
+  const [failed, setFailed] = useState(false)
+  const showPhoto = Boolean(hasLogo) && !failed
+  const text = size >= 64 ? 'text-lg' : size >= 40 ? 'text-sm' : 'text-[11px]'
+
+  useEffect(() => {
+    setFailed(false)
+  }, [version, hasLogo])
+
+  return (
+    <span
+      aria-hidden
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-200 font-semibold text-slate-700 ${text} ${className}`}
+      style={{ width: size, height: size }}
+    >
+      {showPhoto ? (
+        <img
+          src={companyLogoUrl(version)}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        initials(name)
+      )}
+    </span>
+  )
 }
 
 export function UserAvatar({

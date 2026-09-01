@@ -1,11 +1,35 @@
-import { Transform, Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
-
-const emptyToUndefined = Transform(({ value }: { value: unknown }) =>
-  value === '' || value === null ? undefined : value,
-);
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 
 export class StageInputDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  productGroupId?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  quantity!: number;
+}
+
+export class StageOutputDto {
   @IsString()
   @MinLength(1)
   productId!: string;
@@ -22,15 +46,22 @@ export class StageDto {
   @MaxLength(120)
   name!: string;
 
-  @emptyToUndefined
+  @Type(() => Number)
   @IsOptional()
-  @IsString()
-  outputProductId?: string;
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  lossPercent?: number;
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StageInputDto)
   inputs!: StageInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StageOutputDto)
+  outputs!: StageOutputDto[];
 }
 
 export class UpsertProductionTypeDto {

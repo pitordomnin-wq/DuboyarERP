@@ -1,5 +1,16 @@
 import { Transform, Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import { ProductKind, StockMovementType } from '@prisma/client';
 
 const emptyToUndefined = Transform(({ value }: { value: unknown }) =>
@@ -19,6 +30,35 @@ export class CreateWarehouseDto {
   address?: string;
 }
 
+export class CreateWarehouseCategoryDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  name!: string;
+}
+
+export class UpdateWarehouseCategoryDto {
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  name?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  position?: number;
+}
+
+export class ReorderWarehouseCategoriesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  ids!: string[];
+}
+
 export class CreateStockItemDto {
   @IsString()
   @MinLength(1)
@@ -32,6 +72,21 @@ export class CreateStockItemDto {
 
   @IsEnum(ProductKind)
   kind!: ProductKind;
+
+  @IsString()
+  @MinLength(1)
+  categoryId!: string;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  groupId?: string;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  groupName?: string;
 
   @emptyToUndefined
   @IsOptional()
@@ -63,9 +118,36 @@ export class UpdateStockItemDto {
 
   @emptyToUndefined
   @IsOptional()
+  @IsEnum(ProductKind)
+  kind?: ProductKind;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  groupId?: string | null;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  groupName?: string;
+
+  @emptyToUndefined
+  @IsOptional()
   @IsString()
   @MaxLength(20)
   unit?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price?: number;
 }
 
 export class CreateStockMovementDto {
@@ -85,4 +167,11 @@ export class CreateStockMovementDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+export class CreateProductGroupDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name!: string;
 }

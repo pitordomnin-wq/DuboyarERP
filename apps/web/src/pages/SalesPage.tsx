@@ -3,10 +3,17 @@ import { Filter } from 'lucide-react'
 import { Modal } from '@/components/tasks/TaskModal'
 import { DealPanel } from '@/components/sales/DealPanel'
 import { ProductCatalogPicker, type CatalogLine } from '@/components/products/ProductCatalogPicker'
+import { DateField } from '@/components/DateField'
 import { DEAL_STATUS_LABEL, DEAL_STATUSES, type DealStatus } from '@/lib/deal-columns'
 import { fetchCounterparties, type Counterparty } from '@/lib/counterparties-api'
 import { fetchAddressBook } from '@/lib/mail-api'
 import { fetchProducts, money, type Product } from '@/lib/products-api'
+import {
+  fetchDealPipeline,
+  pipelineColorMap,
+  pipelineLabelMap,
+  type DealPipelineColumn,
+} from '@/lib/sales-pipeline-api'
 import {
   createDeal,
   fetchDeal,
@@ -34,11 +41,29 @@ function countFilters(filters: DealListFilters) {
 
 export function SalesPage() {
   const [deals, setDeals] = useState<DealSummary[]>([])
+  const [pipeline, setPipeline] = useState<DealPipelineColumn[]>([])
   const [opened, setOpened] = useState<DealDetail | null>(null)
   const [creating, setCreating] = useState(false)
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<DealListFilters>(emptyFilters)
   const [filterOpen, setFilterOpen] = useState(false)
+
+  useEffect(() => {
+    void fetchDealPipeline().then(setPipeline)
+  }, [])
+
+  const statusLabels = useMemo(
+    () => (pipeline.length ? pipelineLabelMap(pipeline) : DEAL_STATUS_LABEL),
+    [pipeline],
+  )
+  const statusColors = useMemo(
+    () => (pipeline.length ? pipelineColorMap(pipeline) : undefined),
+    [pipeline],
+  )
+  const columnOrder = useMemo(
+    () => (pipeline.length ? pipeline.map((column) => column.status) : [...DEAL_STATUSES]),
+    [pipeline],
+  )
 
   async function load(nextQuery = query, nextFilters = filters) {
     setDeals(await fetchDeals({ ...nextFilters, q: nextQuery }))
@@ -54,10 +79,10 @@ export function SalesPage() {
 
   const grouped = useMemo(() => {
     const map = new Map<DealStatus, DealSummary[]>()
-    for (const status of DEAL_STATUSES) map.set(status, [])
+    for (const status of columnOrder) map.set(status, [])
     for (const deal of deals) map.get(deal.status)?.push(deal)
     return map
-  }, [deals])
+  }, [deals, columnOrder])
 
   const filterCount = countFilters(filters)
 
@@ -86,7 +111,7 @@ export function SalesPage() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+          className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary shadow-[0_2px_10px_rgba(47,90,112,0.22)] transition-opacity duration-150 hover:opacity-95"
         >
           Новая сделка
         </button>
@@ -96,30 +121,33 @@ export function SalesPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Поиск по названию, контрагенту, ИНН или товару"
-          className="h-10 min-w-[220px] flex-1 rounded-md border-2 border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500 md:max-w-md"
+          className="h-10 min-w-[220px] flex-1 rounded-xl border border-line bg-white/70 px-3.5 text-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-accent focus:shadow-[0_0_0_3px_rgba(227,148,33,0.22)] md:max-w-md"
         />
         <button
           type="button"
           onClick={() => setFilterOpen(true)}
-          className="inline-flex h-10 items-center gap-2 rounded-md border-2 border-slate-300 bg-white px-3 text-sm"
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white/70 px-3.5 text-sm text-foreground transition-colors duration-150 hover:bg-white/90"
         >
           <Filter size={16} strokeWidth={2} />
           Фильтры
           {filterCount ? (
-            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs tabular-nums">{filterCount}</span>
+            <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-accent">{filterCount}</span>
           ) : null}
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-4 pb-6 md:px-8">
         <div className="flex h-full items-stretch gap-3">
-          {DEAL_STATUSES.map((status) => (
+          {columnOrder.map((status) => (
             <section
               key={status}
-              className="flex h-full w-[300px] shrink-0 flex-col rounded-lg border-2 border-slate-300 bg-slate-100"
+              className="glass-well flex h-full w-[300px] shrink-0 flex-col overflow-hidden rounded-2xl"
             >
-              <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b-2 border-slate-300 px-3">
-                <h2 className="whitespace-nowrap text-sm font-semibold text-foreground">{DEAL_STATUS_LABEL[status]}</h2>
-                <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs tabular-nums text-secondary">
+              <header
+                className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-white/55 px-3"
+                style={statusColors ? { boxShadow: `inset 0 3px 0 0 ${statusColors[status]}` } : undefined}
+              >
+                <h2 className="whitespace-nowrap text-sm font-semibold text-foreground">{statusLabels[status]}</h2>
+                <span className="glass-chip shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums text-secondary">
                   {grouped.get(status)?.length ?? 0}
                 </span>
               </header>
@@ -129,7 +157,7 @@ export function SalesPage() {
                     key={deal.id}
                     type="button"
                     onClick={() => void openDeal(deal.id)}
-                    className="shrink-0 rounded-md border border-slate-300 bg-white p-3 text-left"
+                    className="glass-chip shrink-0 rounded-xl p-3 text-left transition-[background-color,box-shadow] duration-150 hover:bg-white/85"
                   >
                     <p className="text-sm font-medium text-foreground">{deal.title}</p>
                     <p className="mt-1 text-xs text-secondary">{deal.counterparty.name}</p>
@@ -149,6 +177,7 @@ export function SalesPage() {
       {opened ? (
         <DealPanel
           deal={opened}
+          statusLabels={statusLabels}
           onClose={() => setOpened(null)}
           onChange={applyDeal}
           onDeleted={() => removeDeal(opened.id)}
@@ -157,6 +186,7 @@ export function SalesPage() {
       {filterOpen ? (
         <DealFilterPopup
           value={filters}
+          statusLabels={statusLabels}
           onClose={() => setFilterOpen(false)}
           onApply={(next) => {
             setFilters(next)
@@ -259,12 +289,12 @@ function CreateDealModal({
           </label>
           <label className="text-xs font-medium text-secondary">
             К какому числу
-            <input name="dueDate" type="date" className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
+            <DateField name="dueDate" />
           </label>
           <div>
             <p className="text-xs font-medium text-secondary">Позиции</p>
             {items.length > 0 ? (
-              <ul className="mt-1 divide-y divide-slate-200 rounded-md border-2 border-slate-300">
+              <ul className="mt-1 divide-y divide-line rounded-md border-2 border-slate-300">
                 {items.map((item) => (
                   <li key={item.productId} className="flex items-center gap-2 px-2 py-2">
                     <div className="min-w-0 flex-1">
@@ -334,10 +364,12 @@ const fieldClass = 'mt-1 h-10 w-full rounded-md border-2 border-slate-300 bg-whi
 
 function DealFilterPopup({
   value,
+  statusLabels,
   onClose,
   onApply,
 }: {
   value: DealListFilters
+  statusLabels: Record<DealStatus, string>
   onClose: () => void
   onApply: (next: DealListFilters) => void
 }) {
@@ -427,8 +459,7 @@ function DealFilterPopup({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-secondary">
             Срок с
-            <input
-              type="date"
+            <DateField
               value={draft.dueFrom ?? ''}
               onChange={(event) => setField('dueFrom', event.target.value)}
               className={fieldClass}
@@ -436,8 +467,7 @@ function DealFilterPopup({
           </label>
           <label className="text-xs font-medium text-secondary">
             Срок по
-            <input
-              type="date"
+            <DateField
               value={draft.dueTo ?? ''}
               onChange={(event) => setField('dueTo', event.target.value)}
               className={fieldClass}
@@ -445,8 +475,7 @@ function DealFilterPopup({
           </label>
           <label className="text-xs font-medium text-secondary">
             Создано с
-            <input
-              type="date"
+            <DateField
               value={draft.createdFrom ?? ''}
               onChange={(event) => setField('createdFrom', event.target.value)}
               className={fieldClass}
@@ -454,8 +483,7 @@ function DealFilterPopup({
           </label>
           <label className="text-xs font-medium text-secondary">
             Создано по
-            <input
-              type="date"
+            <DateField
               value={draft.createdTo ?? ''}
               onChange={(event) => setField('createdTo', event.target.value)}
               className={fieldClass}
@@ -480,7 +508,7 @@ function DealFilterPopup({
                   checked={Boolean(draft.status?.includes(status))}
                   onChange={() => toggleStatus(status)}
                 />
-                {DEAL_STATUS_LABEL[status]}
+                {statusLabels[status]}
               </label>
             ))}
           </div>

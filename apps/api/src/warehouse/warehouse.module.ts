@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
-import { WarehouseController } from './warehouse.controller';
+import { ProductGroupsController, WarehouseController } from './warehouse.controller';
 import { WarehouseService } from './warehouse.service';
 
 @Module({
   imports: [AuthModule],
-  controllers: [WarehouseController],
+  controllers: [WarehouseController, ProductGroupsController],
   providers: [WarehouseService],
+  exports: [WarehouseService],
 })
 export class WarehouseModule {}

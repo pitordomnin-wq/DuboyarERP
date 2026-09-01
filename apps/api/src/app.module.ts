@@ -15,6 +15,7 @@ import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { OrganizationModule } from './organization/organization.module';
 import { HomeModule } from './home/home.module';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -38,5 +39,6 @@ import { HomeModule } from './home/home.module';
     OrganizationModule,
     HomeModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

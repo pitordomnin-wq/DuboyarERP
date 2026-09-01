@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { requestOtp, verifyOtp } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { BrandLogo } from '@/components/BrandLogo'
 import { OtpInput } from '@/components/OtpInput'
+import { PageWash } from '@/components/PageWash'
 
 type Step = 'email' | 'code'
 
@@ -67,13 +69,14 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
-      <header className="px-6 py-5">
-        <p className="text-[15px] font-semibold tracking-[-0.03em] text-foreground">Faverum</p>
+    <div className="relative flex min-h-dvh flex-col bg-transparent">
+      <PageWash />
+      <header className="relative px-6 py-5">
+        <BrandLogo />
       </header>
 
-      <main className="flex flex-1 items-start justify-center px-6 pt-[18vh] sm:pt-[22vh]">
-        <div className="w-full max-w-[360px]">
+      <main className="relative flex flex-1 items-start justify-center px-6 pt-[14vh] sm:pt-[18vh]">
+        <div className="glass-strong w-full max-w-[400px] rounded-3xl p-7 sm:p-8">
           {step === 'email' ? (
             <form onSubmit={submitEmail} className="flex flex-col gap-8">
               <div>
@@ -94,13 +97,14 @@ export function LoginPage() {
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
+                  placeholder="you@company.ru"
                   value={email}
                   disabled={busy}
                   onChange={(event) => {
                     setEmail(event.target.value)
                     setError(null)
                   }}
-                  className="h-12 rounded-lg border border-border bg-white px-3.5 text-[16px] text-foreground outline-none transition-[border-color,box-shadow] duration-200 focus:border-primary focus:shadow-[0_0_0_3px_rgba(15,23,42,0.12)]"
+                  className="h-12 rounded-xl border-2 border-slate-300 bg-white px-3.5 text-[16px] text-foreground outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-secondary/70 focus:border-foreground focus:shadow-[0_0_0_3px_rgba(28,36,48,0.08)]"
                 />
               </div>
 
@@ -113,7 +117,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="h-12 rounded-lg bg-primary text-sm font-semibold text-on-primary transition-opacity duration-200 hover:opacity-90 disabled:opacity-60"
+                className="h-12 rounded-xl bg-primary text-sm font-semibold text-on-primary transition-opacity duration-200 hover:opacity-90 disabled:opacity-60"
               >
                 {busy ? 'Подождите' : 'Продолжить'}
               </button>
@@ -156,7 +160,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={busy || code.length !== 6}
-                className="h-12 rounded-lg bg-primary text-sm font-semibold text-on-primary transition-opacity duration-200 hover:opacity-90 disabled:opacity-60"
+                className="h-12 rounded-xl bg-primary text-sm font-semibold text-on-primary transition-opacity duration-200 hover:opacity-90 disabled:opacity-60"
               >
                 {busy ? 'Подождите' : 'Войти'}
               </button>

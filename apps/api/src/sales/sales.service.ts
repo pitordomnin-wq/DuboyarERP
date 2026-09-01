@@ -217,7 +217,17 @@ export class SalesService {
     const html = buildInvoiceHtml({
       number,
       date: new Date(),
-      seller: org,
+      seller: {
+        name: org.legalName?.trim() || org.name,
+        inn: org.inn,
+        kpp: org.kpp,
+        ogrn: org.ogrn,
+        legalAddress: org.legalAddress,
+        bankName: org.bankName,
+        bik: org.bik,
+        checkingAccount: org.checkingAccount,
+        correspondentAccount: org.correspondentAccount,
+      },
       buyer: deal.counterparty,
       items: deal.items,
     });

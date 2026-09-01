@@ -17,6 +17,8 @@ export type ProductAttribute = {
 export type Product = {
   id: string
   kind?: ProductKind
+  categoryId?: string
+  groupId?: string | null
   inCatalog?: boolean
   name: string
   sku: string | null
@@ -25,6 +27,8 @@ export type Product = {
   description: string | null
   images?: ProductImage[]
   attributes?: ProductAttribute[]
+  category?: { id: string; name: string; position: number }
+  group?: { id: string; name: string } | null
 }
 
 export type ProductInput = {
@@ -33,6 +37,10 @@ export type ProductInput = {
   unit?: string
   price: number
   description?: string
+  kind?: ProductKind
+  categoryId?: string
+  groupId?: string
+  groupName?: string
   attributes?: ProductAttribute[]
 }
 
@@ -73,8 +81,9 @@ export function setProductCatalog(id: string, inCatalog: boolean) {
   })
 }
 
-export function productImageUrl(productId: string, imageId: string) {
-  return `/v1/products/${productId}/images/${imageId}/file`
+export function productImageUrl(productId: string, imageId: string, width?: number) {
+  const base = `/v1/products/${productId}/images/${imageId}/file`
+  return width ? `${base}?w=${width}` : base
 }
 
 export async function uploadProductImages(productId: string, files: File[]) {

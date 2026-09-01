@@ -70,10 +70,10 @@ export function OtpInput({ value, onChange, disabled, error }: OtpInputProps) {
           onChange={(event) => handleChange(index, event.target.value)}
           onKeyDown={(event) => handleKeyDown(index, event)}
           onPaste={handlePaste}
-          className={`h-14 w-11 rounded-lg border bg-white text-center text-lg font-medium text-foreground outline-none transition-[border-color,box-shadow] duration-200 sm:w-12 ${
+          className={`h-14 w-11 rounded-xl border-2 text-center text-lg font-medium text-foreground outline-none transition-[border-color,box-shadow] duration-200 sm:w-12 ${
             error
-              ? 'border-destructive focus:border-destructive focus:shadow-[0_0_0_3px_rgba(220,38,38,0.12)]'
-              : 'border-border focus:border-primary focus:shadow-[0_0_0_3px_rgba(15,23,42,0.12)]'
+              ? 'border-destructive bg-white focus:border-destructive focus:shadow-[0_0_0_3px_rgba(196,69,58,0.18)]'
+              : 'border-slate-300 bg-white focus:border-foreground focus:shadow-[0_0_0_3px_rgba(28,36,48,0.08)]'
           }`}
         />
       ))}

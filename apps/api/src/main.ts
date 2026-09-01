@@ -9,6 +9,7 @@ async function bootstrap() {
   app.use(cookieParser());
   const http = app.getHttpAdapter().getInstance();
   http.disable('x-powered-by');
+  http.set('trust proxy', 2);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

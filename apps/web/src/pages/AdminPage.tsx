@@ -1,7 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
+import { Pencil } from 'lucide-react'
 import { ProductionTypeForm } from '@/components/production/ProductionTypeForm'
 import { Modal } from '@/components/tasks/TaskModal'
+import { CompanyLogo } from '@/components/UserAvatar'
 import { useAuth } from '@/lib/auth'
 import { canSeePage, homePath, NAV_ITEMS, type PageKey } from '@/lib/nav'
 import { fetchMe } from '@/lib/api'
@@ -14,12 +16,20 @@ import {
 import { createOrgUser, fetchOrgUsers, updateOrgUser, type OrgUser } from '@/lib/users-api'
 import { createRole, deleteRole, fetchRoles, updateRole, type AccessRole } from '@/lib/roles-api'
 import {
+  deleteCompanyLogo,
   fetchOrganization,
+  resetOrganizationDemo,
   updateOrganization,
+  uploadCompanyLogo,
   type OrganizationProfile,
 } from '@/lib/organization-api'
+import {
+  fetchAdminDealPipeline,
+  updateAdminDealPipeline,
+  type DealPipelineColumn,
+} from '@/lib/sales-pipeline-api'
 
-type AdminSection = 'organization' | 'production' | 'users' | 'roles'
+type AdminSection = 'organization' | 'production' | 'sales' | 'users' | 'roles'
 
 const inputClass =
   'mt-1 h-10 w-full rounded-md border-2 border-slate-300 bg-white px-3 text-sm text-foreground outline-none focus:border-slate-500'
@@ -34,7 +44,7 @@ export function AdminPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <aside className="shrink-0 border-b-2 border-slate-300 md:w-64 md:border-r-2 md:border-b-0">
+      <aside className="shrink-0 border-b border-line md:w-64 md:border-r md:border-b-0">
         <div className="px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Разделы</p>
         </div>
@@ -51,12 +61,16 @@ export function AdminPage() {
           <NavButton active={section === 'production'} onClick={() => setSection('production')}>
             Производство
           </NavButton>
+          <NavButton active={section === 'sales'} onClick={() => setSection('sales')}>
+            Продажи
+          </NavButton>
         </nav>
       </aside>
       {section === 'organization' ? <OrganizationSection /> : null}
       {section === 'users' ? <UsersSection currentId={user.id} companyName={user.organization.name} /> : null}
       {section === 'roles' ? <RolesSection currentRoleId={user.roleId} /> : null}
       {section === 'production' ? <ProductionSection /> : null}
+      {section === 'sales' ? <SalesPipelineSection /> : null}
     </div>
   )
 }
@@ -74,11 +88,9 @@ function NavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md px-3 py-2 text-left text-sm ${
-        active ? 'bg-slate-200 font-medium text-foreground' : 'text-secondary hover:bg-slate-100'
-      }`}
+      className={`side-item shrink-0 items-center ${active ? 'side-item-active' : ''}`}
     >
-      {children}
+      <span className="text-sm">{children}</span>
     </button>
   )
 }
@@ -132,14 +144,14 @@ function ProductionSection() {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border-2 border-slate-300 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
         <table className="w-full min-w-[640px] border-collapse text-left text-sm">
           <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
             <tr>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Название</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Продукция</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Этапы</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Склад</th>
+              <th className="border-b border-line px-3 py-2">Название</th>
+              <th className="border-b border-line px-3 py-2">Продукция</th>
+              <th className="border-b border-line px-3 py-2">Этапы</th>
+              <th className="border-b border-line px-3 py-2">Склад</th>
             </tr>
           </thead>
           <tbody>
@@ -194,15 +206,144 @@ function ProductionSection() {
   )
 }
 
+function SalesPipelineSection() {
+  const [columns, setColumns] = useState<DealPipelineColumn[]>([])
+  const [draft, setDraft] = useState<DealPipelineColumn[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    void fetchAdminDealPipeline()
+      .then((rows) => {
+        setColumns(rows)
+        setDraft(rows)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const dirty = JSON.stringify(columns) !== JSON.stringify(draft)
+
+  function updateRow(index: number, patch: Partial<DealPipelineColumn>) {
+    setDraft((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+    setSaved(false)
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    try {
+      const next = await updateAdminDealPipeline(draft)
+      setColumns(next)
+      setDraft(next)
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-5 md:px-8">
+      <div className="mb-4">
+        <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">Колонки продаж</h1>
+        <p className="mt-1 text-sm text-secondary">Названия и цвета колонок в разделе «Продажи» и на главной</p>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-secondary">Загрузка</p>
+      ) : (
+        <form onSubmit={(event) => void save(event)} className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
+            <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+              <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
+                <tr>
+                  <th className="border-b border-line px-3 py-2">Цвет</th>
+                  <th className="border-b border-line px-3 py-2">Название колонки</th>
+                  <th className="border-b border-line px-3 py-2">Предпросмотр</th>
+                </tr>
+              </thead>
+              <tbody>
+                {draft.map((row, index) => (
+                  <tr key={row.status} className="border-b border-slate-200 last:border-b-0">
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={row.color}
+                          onChange={(event) => updateRow(index, { color: event.target.value })}
+                          className="h-9 w-9 cursor-pointer rounded-lg border border-line bg-white p-0.5"
+                          aria-label={`Цвет колонки ${row.label}`}
+                        />
+                        <input
+                          value={row.color}
+                          onChange={(event) => updateRow(index, { color: event.target.value })}
+                          className="h-9 w-[88px] rounded-lg border border-line bg-white px-2 font-mono text-xs uppercase outline-none focus:border-accent"
+                          maxLength={7}
+                        />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <input
+                        value={row.label}
+                        onChange={(event) => updateRow(index, { label: event.target.value })}
+                        className="h-9 w-full max-w-md rounded-lg border border-line bg-white px-3 outline-none focus:border-accent"
+                        maxLength={80}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: row.color }}
+                          aria-hidden
+                        />
+                        <span className="text-sm font-medium text-foreground">{row.label}</span>
+                      </div>
+                      <div className="mt-2 h-1.5 max-w-[180px] overflow-hidden rounded-full bg-white/45">
+                        <div className="h-full rounded-full" style={{ width: '68%', backgroundColor: row.color }} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={!dirty || saving}
+              className="h-10 rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-50"
+            >
+              {saving ? 'Сохранение…' : 'Сохранить'}
+            </button>
+            {saved ? <span className="text-sm text-secondary">Сохранено</span> : null}
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
 function OrganizationSection() {
+  const { setUser } = useAuth()
   const [profile, setProfile] = useState<OrganizationProfile | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [resetStep, setResetStep] = useState(0)
+  const [resetBusy, setResetBusy] = useState(false)
+  const logoInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void fetchOrganization().then(setProfile)
   }, [])
+
+  async function refreshSession() {
+    const next = await fetchMe()
+    if (next) setUser(next)
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -214,6 +355,10 @@ function OrganizationSection() {
     try {
       const next = await updateOrganization({
         name: read('name'),
+        legalName: read('legalName'),
+        brandAddress: read('brandAddress'),
+        phone: read('phone'),
+        email: read('email'),
         inn: read('inn'),
         kpp: read('kpp'),
         ogrn: read('ogrn'),
@@ -225,10 +370,66 @@ function OrganizationSection() {
       })
       setProfile(next)
       setSaved(true)
+      await refreshSession()
     } catch {
       setError('Проверьте поля. ИНН — 10 или 12 цифр, КПП и БИК — 9, счета — 20.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function onPickLogo(list: FileList | null) {
+    const file = list?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('Нужен JPG, PNG, WEBP или GIF')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      setProfile(await uploadCompanyLogo(file))
+      await refreshSession()
+    } catch (err) {
+      const code = err instanceof Error ? err.message : ''
+      setError(code === 'file_too_large' ? 'Файл больше 4 МБ' : 'Не удалось загрузить логотип')
+    } finally {
+      setBusy(false)
+      if (logoInput.current) logoInput.current.value = ''
+    }
+  }
+
+  async function onRemoveLogo() {
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      setProfile(await deleteCompanyLogo())
+      await refreshSession()
+    } catch {
+      setError('Не удалось удалить логотип')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onResetDemo() {
+    if (resetStep === 0) {
+      setResetStep(1)
+      return
+    }
+    setResetBusy(true)
+    setError(null)
+    try {
+      const next = await resetOrganizationDemo()
+      setProfile(next)
+      await refreshSession()
+      window.location.reload()
+    } catch {
+      setResetBusy(false)
+      setResetStep(0)
+      setError('Не удалось сбросить данные')
     }
   }
 
@@ -240,14 +441,77 @@ function OrganizationSection() {
     <div className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-5 md:px-8">
       <div className="mb-4">
         <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">Организация</h1>
-        <p className="mt-1 text-sm text-secondary">Реквизиты для счетов на оплату</p>
+        <p className="mt-1 text-sm text-secondary">Карточка компании в сервисе и реквизиты для счетов</p>
       </div>
-      <form key={profile.updatedAt} onSubmit={submit} className="max-w-3xl rounded-md border-2 border-slate-300 bg-white p-5">
-        <section className="grid gap-3 sm:grid-cols-2">
+      <form onSubmit={submit} className="max-w-3xl">
+        <section className="glass rounded-2xl p-5">
+          <h2 className="text-sm font-semibold text-foreground">Карточка компании</h2>
+          <p className="mt-1 text-sm text-secondary">Так компанию видят сотрудники в настройках</p>
+          <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
+            <div className="flex shrink-0 flex-col items-center gap-2">
+              <input
+                ref={logoInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(event) => void onPickLogo(event.target.files)}
+              />
+              <button
+                type="button"
+                disabled={busy}
+                aria-label="Сменить логотип"
+                title="Сменить логотип"
+                onClick={() => logoInput.current?.click()}
+                className="group relative h-24 w-24 overflow-hidden rounded-xl disabled:opacity-60"
+              >
+                <CompanyLogo
+                  name={profile.name}
+                  hasLogo={profile.hasLogo}
+                  version={profile.logoAt}
+                  size={96}
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-foreground/50 text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                  <Pencil size={22} strokeWidth={1.75} />
+                </span>
+              </button>
+              {profile.hasLogo ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onRemoveLogo()}
+                  className="text-xs text-secondary hover:text-foreground disabled:opacity-60"
+                >
+                  Убрать
+                </button>
+              ) : null}
+            </div>
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-secondary sm:col-span-2">
+                Название
+                <input name="name" required defaultValue={profile.name} className={inputClass} />
+              </label>
+              <label className="text-xs font-medium text-secondary sm:col-span-2">
+                Адрес
+                <input name="brandAddress" defaultValue={profile.brandAddress ?? ''} className={inputClass} />
+              </label>
+              <label className="text-xs font-medium text-secondary">
+                Телефон
+                <input name="phone" defaultValue={profile.phone ?? ''} className={inputClass} />
+              </label>
+              <label className="text-xs font-medium text-secondary">
+                Email
+                <input name="email" type="email" defaultValue={profile.email ?? ''} className={inputClass} />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-4 grid gap-3 rounded-2xl glass p-5 sm:grid-cols-2">
           <h2 className="text-sm font-semibold text-foreground sm:col-span-2">Юридические данные</h2>
+          <p className="text-sm text-secondary sm:col-span-2">Для счетов на оплату и документов</p>
           <label className="text-xs font-medium text-secondary sm:col-span-2">
             Наименование
-            <input name="name" required defaultValue={profile.name} className={inputClass} />
+            <input name="legalName" defaultValue={profile.legalName ?? ''} className={inputClass} />
           </label>
           <label className="text-xs font-medium text-secondary">
             ИНН
@@ -266,7 +530,8 @@ function OrganizationSection() {
             <input name="legalAddress" defaultValue={profile.legalAddress ?? ''} className={inputClass} />
           </label>
         </section>
-        <section className="mt-6 grid gap-3 sm:grid-cols-2">
+
+        <section className="mt-4 grid gap-3 rounded-2xl glass p-5 sm:grid-cols-2">
           <h2 className="text-sm font-semibold text-foreground sm:col-span-2">Банк</h2>
           <label className="text-xs font-medium text-secondary sm:col-span-2">
             Банк
@@ -285,14 +550,38 @@ function OrganizationSection() {
             <input name="correspondentAccount" defaultValue={profile.correspondentAccount ?? ''} className={inputClass} />
           </label>
         </section>
+
         {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
-        {saved ? <p className="mt-4 text-sm text-secondary">Сохранено. Новые счета возьмут эти реквизиты.</p> : null}
+        {saved ? <p className="mt-4 text-sm text-secondary">Сохранено. Новые счета возьмут юридические реквизиты.</p> : null}
         <div className="mt-5 flex justify-end">
           <button type="submit" disabled={busy} className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary">
             Сохранить
           </button>
         </div>
       </form>
+
+      <section className="mt-10 max-w-3xl rounded-2xl glass p-5">
+        <h2 className="text-sm font-semibold text-foreground">Полный сброс</h2>
+        <p className="mt-2 text-sm leading-6 text-secondary">
+          Удалит сделки, склад, закупки, производство, задачи, почту и контрагентов, затем заново заполнит демо
+          паркетного цеха с января 2026. Пользователи и вход сохранятся. Карточка компании вернётся к демо-реквизитам.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={resetBusy || busy}
+            onClick={() => void onResetDemo()}
+            className="h-10 rounded-md border-2 border-slate-400 bg-white px-4 text-sm font-semibold text-foreground disabled:opacity-60"
+          >
+            {resetBusy ? 'Сбрасываем…' : resetStep === 0 ? 'Сбросить данные' : 'Да, сбросить всё'}
+          </button>
+          {resetStep > 0 && !resetBusy ? (
+            <button type="button" onClick={() => setResetStep(0)} className="text-sm text-secondary hover:text-foreground">
+              Отмена
+            </button>
+          ) : null}
+        </div>
+      </section>
     </div>
   )
 }
@@ -330,15 +619,15 @@ function UsersSection({ currentId, companyName }: { currentId: string; companyNa
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border-2 border-slate-300 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
           <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
             <tr>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Имя</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Должность</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Email</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Роль</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Статус</th>
+              <th className="border-b border-line px-3 py-2">Имя</th>
+              <th className="border-b border-line px-3 py-2">Должность</th>
+              <th className="border-b border-line px-3 py-2">Email</th>
+              <th className="border-b border-line px-3 py-2">Роль</th>
+              <th className="border-b border-line px-3 py-2">Статус</th>
             </tr>
           </thead>
           <tbody>
@@ -569,14 +858,14 @@ function RolesSection({ currentRoleId }: { currentRoleId?: string }) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border-2 border-slate-300 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
         <table className="w-full min-w-[640px] border-collapse text-left text-sm">
           <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
             <tr>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Роль</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Страницы</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Сотрудники</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2" />
+              <th className="border-b border-line px-3 py-2">Роль</th>
+              <th className="border-b border-line px-3 py-2">Страницы</th>
+              <th className="border-b border-line px-3 py-2">Сотрудники</th>
+              <th className="border-b border-line px-3 py-2" />
             </tr>
           </thead>
           <tbody>

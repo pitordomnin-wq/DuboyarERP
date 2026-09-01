@@ -8,7 +8,26 @@ import {
   type ProductionType,
   type ProductionTypeInput,
 } from '@/lib/production-api'
-import { fetchWarehouses, type Warehouse } from '@/lib/warehouse-api'
+import { fetchProductGroups, fetchWarehouses, type ProductGroup, type Warehouse } from '@/lib/warehouse-api'
+
+type InputRow = {
+  mode: 'product' | 'group'
+  productId: string
+  productGroupId: string
+  quantity: number
+}
+
+type OutputRow = { productId: string; quantity: number }
+
+type StageDraft = {
+  name: string
+  lossPercent: number
+  inputs: InputRow[]
+  outputs: OutputRow[]
+}
+
+const emptyInput = (): InputRow => ({ mode: 'product', productId: '', productGroupId: '', quantity: 1 })
+const emptyStage = (): StageDraft => ({ name: '', lossPercent: 0, inputs: [], outputs: [] })
 
 export function ProductionTypeForm({
   title,
@@ -26,26 +45,46 @@ export function ProductionTypeForm({
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [finished, setFinished] = useState<Product[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [stages, setStages] = useState(
+  const [groups, setGroups] = useState<ProductGroup[]>([])
+  const [stages, setStages] = useState<StageDraft[]>(
     () =>
       initial?.stages.map((stage) => ({
         name: stage.name,
-        outputProductId: stage.outputProductId ?? '',
-        inputs: stage.inputs.map((input) => ({ productId: input.productId, quantity: input.quantity })),
-      })) ?? [{ name: '', outputProductId: '', inputs: [] as { productId: string; quantity: number }[] }],
+        lossPercent: stage.lossPercent ?? 0,
+        inputs: stage.inputs.map((input) =>
+          input.productGroupId
+            ? {
+                mode: 'group' as const,
+                productId: '',
+                productGroupId: input.productGroupId,
+                quantity: input.quantity,
+              }
+            : {
+                mode: 'product' as const,
+                productId: input.productId ?? '',
+                productGroupId: '',
+                quantity: input.quantity,
+              },
+        ),
+        outputs: stage.outputs.map((output) => ({ productId: output.productId!, quantity: output.quantity })),
+      })) ?? [emptyStage()],
   )
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    void Promise.all([fetchWarehouses(), fetchProducts(undefined, 'FINISHED'), fetchProducts(undefined, 'all')]).then(
-      ([nextWarehouses, nextFinished, nextProducts]) => {
-        setWarehouses(nextWarehouses)
-        setFinished(nextFinished)
-        setProducts(nextProducts)
-      },
-    )
+    void Promise.all([
+      fetchWarehouses(),
+      fetchProducts(undefined, 'FINISHED'),
+      fetchProducts(undefined, 'all'),
+      fetchProductGroups(),
+    ]).then(([nextWarehouses, nextFinished, nextProducts, nextGroups]) => {
+      setWarehouses(nextWarehouses)
+      setFinished(nextFinished)
+      setProducts(nextProducts)
+      setGroups(nextGroups)
+    })
   }, [])
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -59,8 +98,15 @@ export function ProductionTypeForm({
         .filter((stage) => stage.name.trim())
         .map((stage) => ({
           name: stage.name.trim(),
-          outputProductId: stage.outputProductId || undefined,
-          inputs: stage.inputs.filter((input) => input.productId && input.quantity > 0),
+          lossPercent: stage.lossPercent || 0,
+          inputs: stage.inputs
+            .filter((row) => row.quantity > 0 && (row.mode === 'product' ? row.productId : row.productGroupId))
+            .map((row) =>
+              row.mode === 'group'
+                ? { productGroupId: row.productGroupId, quantity: row.quantity }
+                : { productId: row.productId, quantity: row.quantity },
+            ),
+          outputs: stage.outputs.filter((row) => row.productId && row.quantity > 0),
         })),
     }
     if (!payload.name || !payload.productId || !payload.warehouseId || payload.stages.length === 0) {
@@ -95,9 +141,13 @@ export function ProductionTypeForm({
     }
   }
 
+  function patchStage(index: number, patch: Partial<StageDraft>) {
+    setStages((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+  }
+
   return (
     <Modal title={title} onClose={onClose} wide>
-      <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-3">
+      <form onSubmit={(event) => void onSubmit(event)} className="mt-5 flex flex-col gap-3">
         <label className="text-xs font-medium text-secondary">
           Название
           <input
@@ -112,6 +162,7 @@ export function ProductionTypeForm({
           <select
             name="productId"
             required
+            key={`product-${finished.length}`}
             defaultValue={initial?.productId ?? ''}
             className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
           >
@@ -129,6 +180,7 @@ export function ProductionTypeForm({
           <select
             name="warehouseId"
             required
+            key={`warehouse-${warehouses.length}`}
             defaultValue={initial?.warehouseId ?? ''}
             className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
           >
@@ -154,122 +206,48 @@ export function ProductionTypeForm({
                 </button>
               ) : null}
             </div>
-            <label className="text-xs font-medium text-secondary">
-              Название этапа
-              <input
-                value={stage.name}
-                onChange={(event) =>
-                  setStages((current) => current.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)))
-                }
-                required
-                className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
-              />
-            </label>
-            <label className="mt-2 block text-xs font-medium text-secondary">
-              Оприходовать после этапа
-              <select
-                value={stage.outputProductId}
-                onChange={(event) =>
-                  setStages((current) =>
-                    current.map((item, i) => (i === index ? { ...item, outputProductId: event.target.value } : item)),
-                  )
-                }
-                className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
-              >
-                <option value="">Ничего</option>
-                {products.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.sku ? `${item.sku} · ` : ''}
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="mt-2 text-xs font-medium text-secondary">Списать на единицу заказа</p>
-            {stage.inputs.map((input, inputIndex) => (
-              <div key={inputIndex} className="mt-1 flex gap-2">
-                <select
-                  value={input.productId}
-                  onChange={(event) =>
-                    setStages((current) =>
-                      current.map((item, i) =>
-                        i === index
-                          ? {
-                              ...item,
-                              inputs: item.inputs.map((row, j) =>
-                                j === inputIndex ? { ...row, productId: event.target.value } : row,
-                              ),
-                            }
-                          : item,
-                      ),
-                    )
-                  }
-                  className="h-10 min-w-0 flex-1 rounded-md border-2 border-slate-300 px-2 text-sm"
-                >
-                  <option value="">Позиция</option>
-                  {products.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.sku ? `${item.sku} · ` : ''}
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-secondary">
+                Название этапа
+                <input
+                  value={stage.name}
+                  onChange={(event) => patchStage(index, { name: event.target.value })}
+                  required
+                  className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
+                />
+              </label>
+              <label className="text-xs font-medium text-secondary">
+                Потери, %
                 <input
                   type="number"
-                  min="0.001"
-                  step="any"
-                  value={input.quantity}
-                  onChange={(event) =>
-                    setStages((current) =>
-                      current.map((item, i) =>
-                        i === index
-                          ? {
-                              ...item,
-                              inputs: item.inputs.map((row, j) =>
-                                j === inputIndex ? { ...row, quantity: Number(event.target.value) || 0 } : row,
-                              ),
-                            }
-                          : item,
-                      ),
-                    )
-                  }
-                  className="h-10 w-24 rounded-md border-2 border-slate-300 px-2 text-sm"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={stage.lossPercent}
+                  onChange={(event) => patchStage(index, { lossPercent: Number(event.target.value) || 0 })}
+                  className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
                 />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStages((current) =>
-                      current.map((item, i) =>
-                        i === index
-                          ? { ...item, inputs: item.inputs.filter((_, j) => j !== inputIndex) }
-                          : item,
-                      ),
-                    )
-                  }
-                  className="h-10 shrink-0 px-2 text-sm text-secondary hover:text-foreground"
-                >
-                  Удалить
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() =>
-                setStages((current) =>
-                  current.map((item, i) =>
-                    i === index ? { ...item, inputs: [...item.inputs, { productId: '', quantity: 1 }] } : item,
-                  ),
-                )
-              }
-              className="mt-2 text-xs text-secondary hover:text-foreground"
-            >
-              Добавить списание
-            </button>
+                <span className="mt-1 block text-[11px] text-secondary">Уменьшает оприходование на этапе</span>
+              </label>
+            </div>
+            <InputLines
+              rows={stage.inputs}
+              products={products}
+              groups={groups}
+              onChange={(inputs) => patchStage(index, { inputs })}
+            />
+            <BomLines
+              label="Оприходовать на единицу заказа"
+              addLabel="Добавить оприходование"
+              rows={stage.outputs}
+              products={products}
+              onChange={(outputs) => patchStage(index, { outputs })}
+            />
           </div>
         ))}
         <button
           type="button"
-          onClick={() => setStages((current) => [...current, { name: '', outputProductId: '', inputs: [] }])}
+          onClick={() => setStages((current) => [...current, emptyStage()])}
           className="h-10 rounded-md border-2 border-slate-300 text-sm font-medium hover:bg-slate-50"
         >
           Добавить этап
@@ -320,5 +298,162 @@ export function ProductionTypeForm({
         </div>
       </form>
     </Modal>
+  )
+}
+
+function InputLines({
+  rows,
+  products,
+  groups,
+  onChange,
+}: {
+  rows: InputRow[]
+  products: Product[]
+  groups: ProductGroup[]
+  onChange: (rows: InputRow[]) => void
+}) {
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-secondary">Списать на единицу заказа</p>
+      {rows.map((row, index) => (
+        <div key={index} className="mt-1 flex flex-wrap gap-2">
+          <select
+            value={row.mode}
+            onChange={(event) =>
+              onChange(
+                rows.map((item, i) =>
+                  i === index
+                    ? { ...item, mode: event.target.value as 'product' | 'group', productId: '', productGroupId: '' }
+                    : item,
+                ),
+              )
+            }
+            className="h-10 w-28 rounded-md border-2 border-slate-300 px-2 text-sm"
+          >
+            <option value="product">Товар</option>
+            <option value="group">Группа</option>
+          </select>
+          {row.mode === 'product' ? (
+            <select
+              value={row.productId}
+              onChange={(event) =>
+                onChange(rows.map((item, i) => (i === index ? { ...item, productId: event.target.value } : item)))
+              }
+              className="h-10 min-w-0 flex-1 rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              <option value="">Позиция</option>
+              {products.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku ? `${item.sku} · ` : ''}
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={row.productGroupId}
+              onChange={(event) =>
+                onChange(rows.map((item, i) => (i === index ? { ...item, productGroupId: event.target.value } : item)))
+              }
+              className="h-10 min-w-0 flex-1 rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              <option value="">Группа (FIFO)</option>
+              {groups.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <input
+            type="number"
+            min="0.001"
+            step="any"
+            value={row.quantity}
+            onChange={(event) =>
+              onChange(rows.map((item, i) => (i === index ? { ...item, quantity: Number(event.target.value) || 0 } : item)))
+            }
+            className="h-10 w-24 rounded-md border-2 border-slate-300 px-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => onChange(rows.filter((_, i) => i !== index))}
+            className="h-10 shrink-0 px-2 text-sm text-secondary hover:text-foreground"
+          >
+            Удалить
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...rows, emptyInput()])}
+        className="mt-2 text-xs text-secondary hover:text-foreground"
+      >
+        Добавить списание
+      </button>
+    </div>
+  )
+}
+
+function BomLines({
+  label,
+  addLabel,
+  rows,
+  products,
+  onChange,
+}: {
+  label: string
+  addLabel: string
+  rows: OutputRow[]
+  products: Product[]
+  onChange: (rows: OutputRow[]) => void
+}) {
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-secondary">{label}</p>
+      {rows.map((row, index) => (
+        <div key={index} className="mt-1 flex gap-2">
+          <select
+            value={row.productId}
+            onChange={(event) =>
+              onChange(rows.map((item, i) => (i === index ? { ...item, productId: event.target.value } : item)))
+            }
+            className="h-10 min-w-0 flex-1 rounded-md border-2 border-slate-300 px-2 text-sm"
+          >
+            <option value="">Позиция</option>
+            {products.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.sku ? `${item.sku} · ` : ''}
+                {item.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min="0.001"
+            step="any"
+            value={row.quantity}
+            onChange={(event) =>
+              onChange(rows.map((item, i) => (i === index ? { ...item, quantity: Number(event.target.value) || 0 } : item)))
+            }
+            className="h-10 w-24 rounded-md border-2 border-slate-300 px-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => onChange(rows.filter((_, i) => i !== index))}
+            className="h-10 shrink-0 px-2 text-sm text-secondary hover:text-foreground"
+          >
+            Удалить
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...rows, { productId: '', quantity: 1 }])}
+        className="mt-2 text-xs text-secondary hover:text-foreground"
+      >
+        {addLabel}
+      </button>
+    </div>
   )
 }

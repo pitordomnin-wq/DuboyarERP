@@ -96,12 +96,14 @@ export function CounterpartyEditPage() {
 
 function FormLayout({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-auto px-4 py-5 md:px-8">
+    <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-5 md:px-8">
       <Link to="/counterparties" className="text-sm text-secondary hover:text-foreground">
         ← К списку
       </Link>
-      <h1 className="mt-3 mb-6 text-xl font-semibold tracking-[-0.03em] text-foreground">{title}</h1>
-      {children}
+      <div className="glass mt-3 rounded-2xl p-5 md:p-6">
+        <h1 className="mb-5 text-xl font-semibold tracking-[-0.03em] text-foreground">{title}</h1>
+        {children}
+      </div>
     </div>
   )
 }

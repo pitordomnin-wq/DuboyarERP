@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { fetchProducts, money, type Product } from '@/lib/products-api'
 import { PRODUCT_KIND_LABEL, type ProductKind } from '@/lib/warehouse-api'
 
@@ -80,14 +81,14 @@ export function ProductCatalogPicker({
     onConfirm(Object.values(draft).filter((line) => line.quantity > 0))
   }
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
-      <button type="button" aria-label="Закрыть каталог" className="absolute inset-0 bg-foreground/50" onClick={onClose} />
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center">
+      <button type="button" aria-label="Закрыть каталог" className="glass-scrim absolute inset-0" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="catalog-title"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-t-2xl bg-white p-5 shadow-[0_20px_25px_rgba(15,23,42,0.12)] sm:rounded-2xl"
+        className="glass-strong relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-t-3xl p-5 sm:rounded-3xl"
       >
         <h2 id="catalog-title" className="text-lg font-semibold tracking-[-0.03em] text-foreground">
           {title}
@@ -175,6 +176,7 @@ export function ProductCatalogPicker({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

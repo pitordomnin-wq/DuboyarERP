@@ -54,3 +54,28 @@ export async function removeAvatarFile(storageKey: string) {
     // already gone
   }
 }
+
+export function logoUploadRoot() {
+  return process.env.LOGO_UPLOAD_DIR ?? join(process.cwd(), 'uploads', 'logos');
+}
+
+export function logoPath(storageKey: string) {
+  return join(logoUploadRoot(), storageKey);
+}
+
+export async function saveOrgLogo(organizationId: string, mime: string, buffer: Buffer) {
+  const ext = MIME_EXT[mime] ?? 'png';
+  const key = `${organizationId}.${ext}`;
+  const full = logoPath(key);
+  await mkdir(logoUploadRoot(), { recursive: true });
+  await writeFile(full, buffer);
+  return key;
+}
+
+export async function removeLogoFile(storageKey: string) {
+  try {
+    await unlink(logoPath(storageKey));
+  } catch {
+    // already gone
+  }
+}

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
@@ -77,12 +78,15 @@ export class ProductsController {
   }
 
   @Get(':id/images/:imageId/file')
+  @Header('Cache-Control', 'private, max-age=31536000, immutable')
   file(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('imageId') imageId: string,
+    @Query('w') w?: string,
   ) {
-    return this.products.file(user, id, imageId);
+    const width = w ? Number.parseInt(w, 10) : undefined;
+    return this.products.file(user, id, imageId, Number.isFinite(width) ? width : undefined);
   }
 
   @Delete(':id/images/:imageId')

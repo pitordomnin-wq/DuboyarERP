@@ -12,7 +12,7 @@ import {
   type ProductImage,
   type ProductInput,
 } from '@/lib/products-api'
-import { PRODUCT_KIND_LABEL } from '@/lib/warehouse-api'
+import { PRODUCT_KIND_LABEL, fetchProductGroups, fetchWarehouseCategories, type ProductKind } from '@/lib/warehouse-api'
 import { Modal } from '@/components/tasks/TaskModal'
 import { ProductAttributesEditor } from '@/components/products/ProductAttributesEditor'
 
@@ -22,15 +22,6 @@ export function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Product | 'new' | null>(null)
   const [fromStock, setFromStock] = useState(false)
-
-  async function load() {
-    setLoading(true)
-    try {
-      setItems(await fetchProducts(query))
-    } finally {
-      setLoading(false)
-    }
-  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -44,38 +35,31 @@ export function ProductsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-4 py-5 md:px-8">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">Товары</h1>
-          <p className="mt-1 max-w-xl text-sm text-secondary">
-            Карточки для интернет-магазина и счетов. В заказ попадают только они. Сырьё и расходники — на складе и в
-            закупках.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h1 className="shrink-0 text-xl font-semibold tracking-[-0.03em] text-foreground">Товары</h1>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Поиск по названию или артикулу"
+          className="h-10 min-w-[180px] flex-1 rounded-xl border border-line bg-white/55 px-3 text-sm outline-none focus:border-accent md:max-w-md"
+        />
+        <div className="ml-auto flex shrink-0 gap-2">
           <button
             type="button"
             onClick={() => setFromStock(true)}
-            className="h-10 rounded-md border-2 border-slate-300 bg-white px-4 text-sm font-medium"
+            className="h-10 rounded-xl border border-line bg-white/55 px-4 text-sm font-medium"
           >
             Со склада
           </button>
           <button
             type="button"
             onClick={() => setEditing('new')}
-            className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+            className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary"
           >
             Новая карточка
           </button>
         </div>
       </div>
-
-      <input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Поиск по названию или артикулу"
-        className="mb-4 h-10 max-w-md rounded-md border-2 border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500"
-      />
 
       <div className="min-h-0 flex-1 overflow-auto">
         {loading ? (
@@ -91,13 +75,15 @@ export function ProductsPage() {
                 key={item.id}
                 type="button"
                 onClick={() => setEditing(item)}
-                className="flex flex-col rounded-lg border-2 border-slate-300 bg-white p-4 text-left hover:border-slate-400"
+                className="glass flex flex-col rounded-2xl p-4 text-left transition-[background-color] duration-200 hover:bg-white/70"
               >
                 <div className="mb-3 flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-slate-100">
                   {item.images?.[0] ? (
                     <img
-                      src={productImageUrl(item.id, item.images[0].id)}
+                      src={productImageUrl(item.id, item.images[0].id, 480)}
                       alt=""
+                      loading="lazy"
+                      decoding="async"
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -181,12 +167,18 @@ function ProductFormModal({
   const [error, setError] = useState<string | null>(null)
   const [savedImages, setSavedImages] = useState<ProductImage[]>(initial?.images ?? [])
   const [pending, setPending] = useState<{ key: string; file: File; url: string }[]>([])
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([])
   const attributesRef = useRef<{ name: string; value: string }[]>(
     (initial?.attributes ?? []).map((item) => ({ name: item.name, value: item.value })),
   )
 
   pendingRef.current = pending
   useEffect(() => {
+    void Promise.all([fetchWarehouseCategories(), fetchProductGroups()]).then(([cats, g]) => {
+      setCategories(cats)
+      setGroups(g)
+    })
     return () => {
       pendingRef.current.forEach((item) => URL.revokeObjectURL(item.url))
     }
@@ -256,12 +248,18 @@ function ProductFormModal({
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
+    const groupName = String(data.get('groupName') ?? '').trim()
     const input: ProductInput = {
       name: String(data.get('name') ?? '').trim(),
       sku: String(data.get('sku') ?? '').trim() || undefined,
       unit: String(data.get('unit') ?? '').trim() || 'шт',
       price: Number(data.get('price')),
       description: String(data.get('description') ?? '').trim() || undefined,
+      kind: String(data.get('kind') || 'FINISHED') as ProductKind,
+      categoryId: String(data.get('categoryId') ?? '') || undefined,
+      ...(groupName
+        ? { groupName }
+        : { groupId: String(data.get('groupId') ?? '') || undefined }),
       attributes: attributesRef.current,
     }
     if (!input.name || Number.isNaN(input.price)) {
@@ -313,7 +311,13 @@ function ProductFormModal({
             {initial
               ? savedImages.map((image) => (
                   <div key={image.id} className="relative h-24 w-24 overflow-hidden rounded-md border-2 border-slate-300">
-                    <img src={productImageUrl(initial.id, image.id)} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={productImageUrl(initial.id, image.id, 192)}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-cover"
+                    />
                     <button
                       type="button"
                       disabled={busy}
@@ -373,6 +377,34 @@ function ProductFormModal({
         </label>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-xs font-medium text-secondary">
+            Тип
+            <select
+              name="kind"
+              defaultValue={initial?.kind ?? 'FINISHED'}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              {(Object.keys(PRODUCT_KIND_LABEL) as ProductKind[]).map((kind) => (
+                <option key={kind} value={kind}>
+                  {PRODUCT_KIND_LABEL[kind]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-secondary">
+            Вкладка склада
+            <select
+              name="categoryId"
+              defaultValue={initial?.categoryId ?? categories.find((c) => c.name === 'Готовая продукция')?.id ?? ''}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              {categories.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-secondary">
             Ед.
             <input
               name="unit"
@@ -393,6 +425,29 @@ function ProductFormModal({
             />
           </label>
         </div>
+        <label className="text-xs font-medium text-secondary">
+          Группа
+          <select
+            name="groupId"
+            defaultValue={initial?.groupId ?? ''}
+            className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+          >
+            <option value="">Без группы</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-medium text-secondary">
+          Или новая группа
+          <input
+            name="groupName"
+            placeholder="Название"
+            className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
+          />
+        </label>
         <ProductAttributesEditor
           initial={initial?.attributes}
           onChange={(rows) => {

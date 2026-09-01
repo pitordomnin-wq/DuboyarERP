@@ -86,7 +86,7 @@ function TaskCardBody({ task }: { task: Task }) {
 
 export function TaskCardPreview({ task }: { task: Task }) {
   return (
-    <article className="w-[276px] cursor-grabbing rounded-md border border-slate-300 bg-white p-3 shadow-lg ring-2 ring-slate-400">
+    <article className="glass-chip w-[276px] cursor-grabbing rounded-xl p-3 shadow-lg ring-1 ring-accent/30">
       <TaskCardBody task={task} />
     </article>
   )
@@ -110,7 +110,7 @@ export function TaskCard({ task, onOpen }: { task: Task; onOpen: (task: Task) =>
         transition: isDragging ? undefined : transition,
         cursor: isDragging ? 'grabbing' : 'grab',
       }}
-      className={`shrink-0 cursor-grab rounded-md border border-slate-300 bg-white p-3 touch-none active:cursor-grabbing ${
+      className={`glass-chip min-w-0 shrink-0 cursor-grab overflow-hidden rounded-xl p-3 touch-none active:cursor-grabbing ${
         isDragging ? 'opacity-0' : ''
       }`}
       {...attributes}

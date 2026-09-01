@@ -1,0 +1,35 @@
+[DEFAULT]
+banaction = ufw
+banaction_allports = ufw
+ignoreip = 127.0.0.1/8 ::1
+bantime = 1h
+findtime = 10m
+maxretry = 4
+bantime.increment = true
+bantime.factor = 2
+bantime.maxtime = 1w
+
+[sshd]
+enabled = true
+backend = systemd
+maxretry = 3
+findtime = 10m
+bantime = 1h
+filter = sshd[mode=aggressive]
+
+[caddy-otp]
+enabled = true
+port = http,https
+logpath = /opt/faverum/data/caddy-logs/access.log
+backend = auto
+maxretry = 8
+findtime = 10m
+bantime = 2h
+
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+bantime = 1w
+findtime = 1d
+maxretry = 3
+banaction = ufw

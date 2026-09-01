@@ -1,33 +1,32 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Modal } from '@/components/tasks/TaskModal'
+import { StockPositionDialog, UnitInput, formatQty } from '@/components/warehouse/StockPositionDialog'
 import {
   PRODUCT_KIND_LABEL,
   createStockItem,
   createWarehouse,
+  createWarehouseCategory,
+  deleteWarehouseCategory,
+  fetchProductGroups,
   fetchStock,
-  fetchStockItem,
+  fetchWarehouseCategories,
   fetchWarehouses,
+  reorderWarehouseCategories,
+  updateWarehouseCategory,
   postStockMovement,
-  updateStockItem,
+  type ProductGroup,
   type ProductKind,
-  type StockCard,
   type StockMovementType,
   type StockRow,
   type Warehouse,
+  type WarehouseCategory,
 } from '@/lib/warehouse-api'
-
-const TABS: { id: ProductKind | 'all'; label: string }[] = [
-  { id: 'all', label: 'Все' },
-  { id: 'CONSUMABLE', label: 'Расходники' },
-  { id: 'MATERIAL', label: 'Сырьё' },
-  { id: 'SEMI_FINISHED', label: 'Заготовки' },
-  { id: 'FINISHED', label: 'Готовая продукция' },
-]
 
 export function WarehousePage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [categories, setCategories] = useState<WarehouseCategory[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [tab, setTab] = useState<ProductKind | 'all'>('all')
+  const [tab, setTab] = useState<string>('all')
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<StockRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,6 +34,7 @@ export function WarehousePage() {
   const [creatingItem, setCreatingItem] = useState(false)
   const [moving, setMoving] = useState<'RECEIPT' | 'WRITEOFF' | null>(null)
   const [opened, setOpened] = useState<string | null>(null)
+  const [editingTabs, setEditingTabs] = useState(false)
 
   async function loadWarehouses(selectId?: string) {
     const list = await fetchWarehouses()
@@ -42,8 +42,13 @@ export function WarehousePage() {
     setActiveId((current) => selectId ?? current ?? list[0]?.id ?? null)
   }
 
+  async function loadCategories() {
+    setCategories(await fetchWarehouseCategories())
+  }
+
   useEffect(() => {
     void loadWarehouses()
+    void loadCategories()
   }, [])
 
   useEffect(() => {
@@ -57,9 +62,15 @@ export function WarehousePage() {
     return () => window.clearTimeout(timer)
   }, [activeId, tab, query])
 
+  useEffect(() => {
+    if (tab !== 'all' && categories.length && !categories.some((c) => c.id === tab)) {
+      setTab('all')
+    }
+  }, [categories, tab])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <aside className="shrink-0 border-b-2 border-slate-300 md:w-72 md:border-r-2 md:border-b-0">
+      <aside className="shrink-0 border-b border-line md:w-72 md:border-r md:border-b-0">
         <div className="flex items-center justify-between gap-2 px-4 py-3 md:px-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Склады</p>
           <button type="button" onClick={() => setCreatingWarehouse(true)} className="text-xs text-secondary hover:text-foreground">
@@ -67,80 +78,104 @@ export function WarehousePage() {
           </button>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:px-2">
-          {warehouses.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setActiveId(item.id)}
-              className={`min-w-[220px] shrink-0 rounded-md px-3 py-2 text-left md:min-w-0 ${
-                item.id === activeId ? 'bg-slate-200 text-foreground' : 'text-secondary hover:bg-slate-100'
-              }`}
-            >
-              <p className="text-sm font-medium">{item.name}</p>
-              {item.address ? <p className="mt-0.5 text-xs leading-snug text-secondary">{item.address}</p> : null}
-            </button>
-          ))}
+          {warehouses.map((item) => {
+            const active = item.id === activeId
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveId(item.id)}
+                className={`side-item min-w-[220px] shrink-0 flex-col items-start md:min-w-0 ${active ? 'side-item-active' : ''}`}
+              >
+                <span className="text-sm">{item.name}</span>
+                {item.address ? (
+                  <span className="text-xs leading-snug text-secondary">{item.address}</span>
+                ) : null}
+              </button>
+            )
+          })}
         </nav>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-5 md:px-8">
-        <div className="mb-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={!activeId}
-            onClick={() => setCreatingItem(true)}
-            className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60"
-          >
-            Новая позиция
-          </button>
-          <button
-            type="button"
-            disabled={!activeId}
-            onClick={() => setMoving('RECEIPT')}
-            className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60"
-          >
-            Оприходование
-          </button>
-          <button
-            type="button"
-            disabled={!activeId}
-            onClick={() => setMoving('WRITEOFF')}
-            className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60"
-          >
-            Списание
-          </button>
-        </div>
-
-        <div className="mb-3 flex gap-1 overflow-x-auto">
-          {TABS.map((item) => (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-4 py-4 md:px-8">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
             <button
-              key={item.id}
               type="button"
-              onClick={() => setTab(item.id)}
-              className={`shrink-0 whitespace-nowrap rounded-md border-2 px-3 py-1.5 text-sm ${
-                tab === item.id ? 'border-foreground bg-slate-100' : 'border-slate-300 text-secondary'
+              onClick={() => setTab('all')}
+              className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition-colors duration-150 ${
+                tab === 'all'
+                  ? 'bg-primary font-semibold text-on-primary shadow-[0_1px_6px_rgba(47,90,112,0.28)]'
+                  : 'text-secondary hover:bg-white/60 hover:text-foreground'
               }`}
             >
-              {item.label}
+              Все
             </button>
-          ))}
+            {categories.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition-colors duration-150 ${
+                  tab === item.id
+                    ? 'bg-primary font-semibold text-on-primary shadow-[0_1px_6px_rgba(47,90,112,0.28)]'
+                    : 'text-secondary hover:bg-white/60 hover:text-foreground'
+                }`}
+              >
+                {item.name}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setEditingTabs(true)}
+              className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm text-secondary hover:bg-white/60 hover:text-foreground"
+            >
+              Настроить
+            </button>
+          </div>
+          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={!activeId}
+              onClick={() => setCreatingItem(true)}
+              className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary shadow-[0_2px_10px_rgba(47,90,112,0.22)] transition-opacity duration-150 hover:opacity-95 disabled:opacity-50"
+            >
+              Новая позиция
+            </button>
+            <button
+              type="button"
+              disabled={!activeId}
+              onClick={() => setMoving('RECEIPT')}
+              className="inline-flex h-10 items-center rounded-xl border border-line bg-white/70 px-4 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-white/90 disabled:opacity-50"
+            >
+              Оприходование
+            </button>
+            <button
+              type="button"
+              disabled={!activeId}
+              onClick={() => setMoving('WRITEOFF')}
+              className="inline-flex h-10 items-center rounded-xl border border-line bg-white/70 px-4 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-white/90 disabled:opacity-50"
+            >
+              Списание
+            </button>
+          </div>
         </div>
 
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Поиск по названию или номеру"
-          className="mb-4 h-10 max-w-md rounded-md border-2 border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500"
+          placeholder="Поиск по названию или артикулу"
+          className="mb-4 h-10 max-w-md rounded-xl border border-line bg-white/70 px-3.5 text-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-accent focus:shadow-[0_0_0_3px_rgba(227,148,33,0.22)]"
         />
 
-        <div className="min-h-0 flex-1 overflow-auto rounded-md border-2 border-slate-300 bg-white">
+        <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
           <table className="w-full min-w-[560px] border-collapse text-left text-sm">
             <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
               <tr>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Номер</th>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Наименование</th>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Количество</th>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Ед.</th>
+                <th className="border-b border-line px-3 py-2">Артикул</th>
+                <th className="border-b border-line px-3 py-2">Наименование</th>
+                <th className="border-b border-line px-3 py-2">Количество</th>
+                <th className="border-b border-line px-3 py-2">Ед.</th>
               </tr>
             </thead>
             <tbody>
@@ -186,12 +221,20 @@ export function WarehousePage() {
       ) : null}
       {creatingItem && activeId ? (
         <ItemFormModal
+          categories={categories}
           onClose={() => setCreatingItem(false)}
           onCreated={() => {
             setCreatingItem(false)
             void fetchStock(activeId, tab, query).then(setRows)
           }}
           warehouseId={activeId}
+        />
+      ) : null}
+      {editingTabs ? (
+        <CategoriesModal
+          categories={categories}
+          onClose={() => setEditingTabs(false)}
+          onChanged={() => void loadCategories()}
         />
       ) : null}
       {moving && activeId ? (
@@ -206,7 +249,7 @@ export function WarehousePage() {
         />
       ) : null}
       {opened && activeId ? (
-        <StockCardModal
+        <StockPositionDialog
           warehouseId={activeId}
           productId={opened}
           onClose={() => setOpened(null)}
@@ -273,17 +316,143 @@ function WarehouseFormModal({
   )
 }
 
+function CategoriesModal({
+  categories,
+  onClose,
+  onChanged,
+}: {
+  categories: WarehouseCategory[]
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [rows, setRows] = useState(categories)
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setRows(categories)
+  }, [categories])
+
+  async function addCategory(event: FormEvent) {
+    event.preventDefault()
+    if (!name.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await createWarehouseCategory(name.trim())
+      setName('')
+      onChanged()
+    } catch {
+      setError('Не удалось создать вкладку')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function rename(id: string, next: string) {
+    const trimmed = next.trim()
+    if (!trimmed) return
+    try {
+      await updateWarehouseCategory(id, { name: trimmed })
+      onChanged()
+    } catch {
+      setError('Имя занято или недоступно')
+    }
+  }
+
+  async function remove(id: string) {
+    setError(null)
+    try {
+      await deleteWarehouseCategory(id)
+      onChanged()
+    } catch (err) {
+      setError(err instanceof Error && err.message === 'category_in_use' ? 'Во вкладке есть товары' : 'Нельзя удалить')
+    }
+  }
+
+  async function move(id: string, dir: -1 | 1) {
+    const index = rows.findIndex((row) => row.id === id)
+    const next = index + dir
+    if (index < 0 || next < 0 || next >= rows.length) return
+    const ids = rows.map((row) => row.id)
+    ;[ids[index], ids[next]] = [ids[next], ids[index]]
+    setRows(ids.map((itemId, position) => ({ ...rows.find((r) => r.id === itemId)!, position })))
+    await reorderWarehouseCategories(ids)
+    onChanged()
+  }
+
+  return (
+    <Modal title="Вкладки склада" onClose={onClose}>
+      <div className="mt-4 flex flex-col gap-3">
+        <ul className="divide-y divide-line rounded-xl border border-line">
+          {rows.map((row, index) => (
+            <li key={row.id} className="flex items-center gap-2 px-3 py-2">
+              <input
+                defaultValue={row.name}
+                onBlur={(event) => {
+                  if (event.target.value.trim() !== row.name) void rename(row.id, event.target.value)
+                }}
+                className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-white px-2 text-sm"
+              />
+              <button type="button" disabled={index === 0} onClick={() => void move(row.id, -1)} className="text-xs text-secondary disabled:opacity-40">
+                ↑
+              </button>
+              <button
+                type="button"
+                disabled={index === rows.length - 1}
+                onClick={() => void move(row.id, 1)}
+                className="text-xs text-secondary disabled:opacity-40"
+              >
+                ↓
+              </button>
+              <button type="button" onClick={() => void remove(row.id)} className="text-xs text-destructive">
+                Удалить
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form onSubmit={(event) => void addCategory(event)} className="flex gap-2">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Новая вкладка"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-sm"
+          />
+          <button type="submit" disabled={busy} className="h-10 rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary">
+            Добавить
+          </button>
+        </form>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} className="h-10 px-3 text-sm text-secondary">
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function ItemFormModal({
   warehouseId,
+  categories,
   onClose,
   onCreated,
 }: {
   warehouseId: string
+  categories: WarehouseCategory[]
   onClose: () => void
   onCreated: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [groups, setGroups] = useState<ProductGroup[]>([])
+  const [groupMode, setGroupMode] = useState<'none' | 'existing' | 'new'>('none')
+
+  useEffect(() => {
+    void fetchProductGroups().then(setGroups)
+  }, [])
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -291,15 +460,21 @@ function ItemFormModal({
     setBusy(true)
     setError(null)
     try {
+      const groupName = String(data.get('groupName') ?? '').trim()
+      const groupId = String(data.get('groupId') ?? '').trim()
       await createStockItem(warehouseId, {
         name: String(data.get('name') ?? '').trim(),
         sku: String(data.get('sku') ?? '').trim(),
         kind: String(data.get('kind')) as ProductKind,
+        categoryId: String(data.get('categoryId') ?? ''),
         unit: String(data.get('unit') ?? '').trim() || 'шт',
+        price: Number(data.get('price') || 0),
+        ...(groupMode === 'new' && groupName ? { groupName } : {}),
+        ...(groupMode === 'existing' && groupId ? { groupId } : {}),
       })
       onCreated()
     } catch {
-      setError('Не удалось сохранить. Проверьте название и номер — он должен быть уникальным.')
+      setError('Не удалось сохранить. Проверьте название и артикул — он должен быть уникальным.')
     } finally {
       setBusy(false)
     }
@@ -313,22 +488,68 @@ function ItemFormModal({
           <input name="name" required className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
         </label>
         <label className="text-xs font-medium text-secondary">
-          Номер
+          Артикул
           <input name="sku" required className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
         </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-medium text-secondary">
+            Тип
+            <select name="kind" defaultValue="MATERIAL" className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm">
+              {(Object.keys(PRODUCT_KIND_LABEL) as ProductKind[]).map((kind) => (
+                <option key={kind} value={kind}>
+                  {PRODUCT_KIND_LABEL[kind]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-secondary">
+            Вкладка
+            <select
+              name="categoryId"
+              required
+              defaultValue={categories.find((c) => c.name === 'Сырьё')?.id ?? categories[0]?.id}
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+            >
+              {categories.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <label className="text-xs font-medium text-secondary">
-          Тип
-          <select name="kind" defaultValue="MATERIAL" className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm">
-            {(Object.keys(PRODUCT_KIND_LABEL) as ProductKind[]).map((kind) => (
-              <option key={kind} value={kind}>
-                {PRODUCT_KIND_LABEL[kind]}
+          Группа (необязательно)
+          <select
+            value={groupMode}
+            onChange={(event) => setGroupMode(event.target.value as typeof groupMode)}
+            className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm"
+          >
+            <option value="none">Без группы</option>
+            <option value="existing">Выбрать существующую</option>
+            <option value="new">Создать новую</option>
+          </select>
+        </label>
+        {groupMode === 'existing' ? (
+          <select name="groupId" className="h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm">
+            <option value="">Выберите</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
               </option>
             ))}
           </select>
-        </label>
+        ) : null}
+        {groupMode === 'new' ? (
+          <input name="groupName" placeholder="Название группы" className="h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
+        ) : null}
         <label className="text-xs font-medium text-secondary">
           Единица измерения
           <UnitInput defaultValue="шт" />
+        </label>
+        <label className="text-xs font-medium text-secondary">
+          Учётная цена, ₽
+          <input name="price" type="number" min="0" step="0.01" defaultValue={0} className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
         </label>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="mt-2 flex justify-end gap-3">
@@ -443,181 +664,5 @@ function MovementFormModal({
         </div>
       </form>
     </Modal>
-  )
-}
-
-function StockCardModal({
-  warehouseId,
-  productId,
-  onClose,
-  onChanged,
-}: {
-  warehouseId: string
-  productId: string
-  onClose: () => void
-  onChanged: () => void
-}) {
-  const [card, setCard] = useState<StockCard | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  async function load() {
-    setCard(await fetchStockItem(warehouseId, productId))
-  }
-
-  useEffect(() => {
-    void load()
-  }, [warehouseId, productId])
-
-  async function saveUnit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const unit = String(data.get('unit') ?? '').trim() || 'шт'
-    setBusy(true)
-    setError(null)
-    try {
-      await updateStockItem(warehouseId, productId, { unit })
-      await load()
-      onChanged()
-    } catch {
-      setError('Не удалось сохранить единицу измерения')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function move(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const quantity = Number(data.get('quantity'))
-    if (!quantity) return
-    setBusy(true)
-    setError(null)
-    try {
-      await postStockMovement(warehouseId, {
-        productId,
-        type: String(data.get('type')) as 'RECEIPT' | 'WRITEOFF',
-        quantity,
-        note: String(data.get('note') ?? '').trim() || undefined,
-      })
-      event.currentTarget.reset()
-      await load()
-      onChanged()
-    } catch {
-      setError('Недостаточно остатка или не удалось провести')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (!card) {
-    return (
-      <Modal title="Позиция" onClose={onClose}>
-        <p className="mt-4 text-sm text-secondary">Загрузка</p>
-      </Modal>
-    )
-  }
-
-  return (
-    <Modal title={card.product.name} onClose={onClose}>
-      <div className="mt-4 flex max-h-[70vh] flex-col gap-4 overflow-auto">
-        <p className="text-sm text-secondary">
-          {card.product.sku ?? 'без номера'} · {PRODUCT_KIND_LABEL[card.product.kind]} · {formatQty(card.quantity)}{' '}
-          {card.product.unit}
-        </p>
-        <form onSubmit={saveUnit} className="flex flex-col gap-2 rounded-md border-2 border-slate-300 p-3">
-          <label className="text-xs font-medium text-secondary">
-            Единица измерения
-            <UnitInput key={card.product.unit} defaultValue={card.product.unit} />
-          </label>
-          <div className="flex justify-end">
-            <button type="submit" disabled={busy} className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary">
-              Сохранить
-            </button>
-          </div>
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        </form>
-        <form onSubmit={move} className="grid grid-cols-2 gap-2 rounded-md border-2 border-slate-300 p-3">
-          <label className="text-xs font-medium text-secondary">
-            Проводка
-            <select name="type" className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-2 text-sm">
-              <option value="RECEIPT">Приход</option>
-              <option value="WRITEOFF">Списание</option>
-            </select>
-          </label>
-          <label className="text-xs font-medium text-secondary">
-            Количество
-            <span className="mt-1 flex gap-2">
-              <input
-                name="quantity"
-                type="number"
-                min="0.001"
-                step="any"
-                required
-                className="h-10 min-w-0 flex-1 rounded-md border-2 border-slate-300 px-3 text-sm"
-              />
-              <span className="flex h-10 min-w-12 items-center rounded-md border-2 border-slate-300 px-3 text-sm text-secondary">
-                {card.product.unit}
-              </span>
-            </span>
-          </label>
-          <label className="col-span-2 text-xs font-medium text-secondary">
-            Комментарий
-            <input name="note" className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
-          </label>
-          {error ? <p className="col-span-2 text-sm text-destructive">{error}</p> : null}
-          <div className="col-span-2 flex justify-end">
-            <button type="submit" disabled={busy} className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary">
-              Провести
-            </button>
-          </div>
-        </form>
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-secondary">Движения</p>
-          {card.movements.length === 0 ? (
-            <p className="text-sm text-secondary">Проводок нет — остаток нулевой</p>
-          ) : (
-            <ul className="divide-y divide-slate-200 rounded-md border-2 border-slate-300">
-              {card.movements.map((item) => (
-                <li key={item.id} className="px-3 py-2 text-sm">
-                  <p className="text-foreground">
-                    {item.type === 'RECEIPT' ? 'Приход' : 'Списание'} {formatQty(item.quantity)} {card.product.unit}
-                  </p>
-                  <p className="text-xs text-secondary">
-                    {item.createdBy.name} · {new Date(item.createdAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
-                    {item.note ? ` · ${item.note}` : ''}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-function formatQty(value: number) {
-  return value.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
-}
-
-const UNIT_SUGGESTIONS = ['шт', 'компл', 'уп', 'кг', 'г', 'т', 'м', 'м.п.', 'м²', 'м³', 'л', 'мл', 'лист', 'рул']
-
-function UnitInput({ defaultValue }: { defaultValue?: string }) {
-  return (
-    <>
-      <input
-        name="unit"
-        list="stock-units"
-        defaultValue={defaultValue ?? 'шт'}
-        maxLength={20}
-        className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
-      />
-      <datalist id="stock-units">
-        {UNIT_SUGGESTIONS.map((unit) => (
-          <option key={unit} value={unit} />
-        ))}
-      </datalist>
-    </>
   )
 }

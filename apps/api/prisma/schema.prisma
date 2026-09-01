@@ -25,6 +25,12 @@ enum UserRole {
 model Organization {
   id                   String         @id @default(cuid())
   name                 String
+  legalName            String?
+  brandAddress         String?
+  phone                String?
+  email                String?
+  logoKey              String?
+  logoMime             String?
   licenseStatus        LicenseStatus  @default(ACTIVE)
   inn                  String?
   kpp                  String?
@@ -41,8 +47,11 @@ model Organization {
   counterparties       Counterparty[]
   products             Product[]
   productAttributeTemplates ProductAttributeTemplate[]
+  productGroups        ProductGroup[]
+  warehouseCategories  WarehouseCategory[]
   warehouses           Warehouse[]
   deals                Deal[]
+  dealStatusConfigs    DealStatusConfig[]
   purchases            Purchase[]
   productionTypes      ProductionType[]
   productionJobs       ProductionJob[]
@@ -276,6 +285,19 @@ model Deal {
   @@index([organizationId, status, position])
 }
 
+model DealStatusConfig {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status         DealStatus
+  label          String
+  color          String
+  position       Int
+
+  @@unique([organizationId, status])
+  @@index([organizationId, position])
+}
+
 enum ProductKind {
   CONSUMABLE
   MATERIAL
@@ -293,6 +315,10 @@ model Product {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   kind           ProductKind  @default(FINISHED)
+  categoryId     String
+  category       WarehouseCategory @relation(fields: [categoryId], references: [id])
+  groupId        String?
+  group          ProductGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   inCatalog      Boolean      @default(false)
   name           String
   sku            String?
@@ -305,14 +331,45 @@ model Product {
   attributes     ProductAttribute[]
   dealItems      DealItem[]
   movements      StockMovement[]
+  lots           StockLot[]
   purchaseItems  PurchaseItem[]
-  stageOutputs   ProductionStage[] @relation("StageOutput")
+  stageOutputs   ProductionStageOutput[] @relation("StageOutput")
   stageInputs    ProductionStageInput[] @relation("StageInput")
   productionTypes ProductionType[] @relation("ProductionTypeProduct")
 
   @@unique([organizationId, sku])
   @@index([organizationId, kind, name])
+  @@index([organizationId, categoryId])
+  @@index([organizationId, groupId])
   @@index([organizationId, inCatalog])
+}
+
+model WarehouseCategory {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  position       Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  products       Product[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, position])
+}
+
+model ProductGroup {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  products       Product[]
+  stageInputs    ProductionStageInput[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, name])
 }
 
 model ProductImage {
@@ -371,11 +428,28 @@ model Warehouse {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   movements      StockMovement[]
+  lots           StockLot[]
   purchases      Purchase[]
   productionTypes ProductionType[]
   productionJobs  ProductionJob[]
 
   @@index([organizationId, name])
+}
+
+model StockLot {
+  id               String   @id @default(cuid())
+  warehouseId      String
+  warehouse        Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity         Float
+  receivedAt       DateTime  @default(now())
+  sourceMovementId String?
+  sourceMovement   StockMovement? @relation("LotSource", fields: [sourceMovementId], references: [id], onDelete: SetNull)
+  allocations      StockMovementAllocation[]
+
+  @@index([warehouseId, productId, receivedAt])
+  @@index([sourceMovementId])
 }
 
 model StockMovement {
@@ -394,10 +468,24 @@ model StockMovement {
   createdById String
   createdBy   User               @relation(fields: [createdById], references: [id])
   createdAt   DateTime           @default(now())
+  lotsCreated StockLot[]         @relation("LotSource")
+  allocations StockMovementAllocation[]
 
   @@index([warehouseId, productId, createdAt])
   @@index([purchaseId])
   @@index([productionJobId])
+}
+
+model StockMovementAllocation {
+  id         String        @id @default(cuid())
+  movementId String
+  movement   StockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  lotId      String
+  lot        StockLot      @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  quantity   Float
+
+  @@index([movementId])
+  @@index([lotId])
 }
 
 enum PurchaseStatus {
@@ -492,25 +580,40 @@ model ProductionType {
 }
 
 model ProductionStage {
-  id              String                 @id @default(cuid())
-  typeId          String
-  type            ProductionType         @relation(fields: [typeId], references: [id], onDelete: Cascade)
-  name            String
-  position        Int
-  outputProductId String?
-  outputProduct   Product?               @relation("StageOutput", fields: [outputProductId], references: [id], onDelete: SetNull)
-  jobs            ProductionJob[]
-  inputs          ProductionStageInput[]
+  id          String                  @id @default(cuid())
+  typeId      String
+  type        ProductionType          @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  name        String
+  position    Int
+  lossPercent Float                   @default(0)
+  jobs        ProductionJob[]
+  inputs      ProductionStageInput[]
+  outputs     ProductionStageOutput[]
 
   @@index([typeId, position])
 }
 
 model ProductionStageInput {
-  id        String           @id @default(cuid())
+  id             String          @id @default(cuid())
+  stageId        String
+  stage          ProductionStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?        @relation("StageInput", fields: [productId], references: [id], onDelete: Restrict)
+  productGroupId String?
+  productGroup   ProductGroup?   @relation(fields: [productGroupId], references: [id], onDelete: Restrict)
+  quantity       Float
+
+  @@index([stageId])
+  @@index([productId])
+  @@index([productGroupId])
+}
+
+model ProductionStageOutput {
+  id        String          @id @default(cuid())
   stageId   String
-  stage     ProductionStage  @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  stage     ProductionStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
   productId String
-  product   Product          @relation("StageInput", fields: [productId], references: [id], onDelete: Restrict)
+  product   Product         @relation("StageOutput", fields: [productId], references: [id], onDelete: Restrict)
   quantity  Float
 
   @@unique([stageId, productId])

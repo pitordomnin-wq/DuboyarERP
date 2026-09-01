@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { Pencil } from 'lucide-react'
 import { Modal } from '@/components/tasks/TaskModal'
-import { UserAvatar } from '@/components/UserAvatar'
+import { UserAvatar, CompanyLogo } from '@/components/UserAvatar'
 import { deleteAvatar, updateProfile, uploadAvatar, type SessionUser } from '@/lib/api'
 
 type Tab = 'info' | 'signature'
@@ -75,8 +75,8 @@ export function UserSettings({
 
   return (
     <Modal title="Настройки" onClose={onClose} wide="xl">
-      <div className="mt-4 flex min-h-[22rem] flex-col gap-4 md:flex-row md:gap-0">
-        <nav className="flex gap-1 overflow-x-auto md:w-48 md:shrink-0 md:flex-col md:border-r-2 md:border-slate-300 md:pr-4">
+      <div className="mt-4 flex min-h-[26rem] flex-col gap-4 md:flex-row md:gap-0">
+        <nav className="flex gap-1 overflow-x-auto md:w-48 md:shrink-0 md:flex-col md:border-r md:border-line md:pr-4">
           <TabButton active={tab === 'info'} onClick={() => setTab('info')}>
             Информация
           </TabButton>
@@ -87,8 +87,8 @@ export function UserSettings({
 
         <div className="min-w-0 flex-1 md:pl-6">
           {tab === 'info' ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-start gap-5">
+            <div className="flex flex-col gap-6">
+              <section className="flex items-start gap-5">
                 <div className="flex shrink-0 flex-col items-center gap-2">
                   <input
                     ref={fileInput}
@@ -127,21 +127,38 @@ export function UserSettings({
                     </button>
                   ) : null}
                 </div>
-                <div className="min-w-0 pt-0.5">
-                  <p className="text-lg font-semibold tracking-[-0.03em] text-foreground">{user.name}</p>
+                <div className="min-w-0 pt-1">
+                  <p className="text-xs font-medium text-secondary">Пользователь</p>
+                  <p className="mt-0.5 text-lg font-semibold tracking-[-0.03em] text-foreground">{user.name}</p>
                   <p className="mt-1 text-sm text-secondary">{user.email}</p>
-                  <dl className="mt-4 space-y-3">
-                    <div>
-                      <dt className="text-xs font-medium text-secondary">Компания</dt>
-                      <dd className="mt-0.5 text-sm text-foreground">{user.organization.name}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-medium text-secondary">Должность</dt>
-                      <dd className="mt-0.5 text-sm text-foreground">{user.jobTitle?.trim() || 'Не указана'}</dd>
-                    </div>
-                  </dl>
+                  <p className="mt-3 text-xs font-medium text-secondary">Должность</p>
+                  <p className="mt-0.5 text-sm text-foreground">{user.jobTitle?.trim() || 'Не указана'}</p>
                 </div>
-              </div>
+              </section>
+
+              <section className="flex items-start gap-5 border-t-2 border-slate-300 pt-6">
+                <CompanyLogo
+                  name={user.organization.name}
+                  hasLogo={user.organization.hasLogo}
+                  version={user.organization.logoAt}
+                  size={96}
+                />
+                <div className="min-w-0 pt-1">
+                  <p className="text-xs font-medium text-secondary">Компания</p>
+                  <p className="mt-0.5 text-base font-semibold tracking-[-0.03em] text-foreground">
+                    {user.organization.name}
+                  </p>
+                  {user.organization.address ? (
+                    <p className="mt-2 text-sm leading-6 text-secondary">{user.organization.address}</p>
+                  ) : (
+                    <p className="mt-2 text-sm text-secondary">Адрес не указан</p>
+                  )}
+                  <p className="mt-2 text-sm text-secondary">
+                    {[user.organization.phone, user.organization.email].filter(Boolean).join(' · ') ||
+                      'Контакты не указаны'}
+                  </p>
+                </div>
+              </section>
             </div>
           ) : null}
 
@@ -189,7 +206,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={`rounded-md px-3 py-2 text-left text-sm ${
-        active ? 'bg-slate-200 font-medium text-foreground' : 'text-secondary hover:bg-slate-100'
+        active ? 'bg-white/60 font-medium text-foreground' : 'text-secondary hover:bg-white/35'
       }`}
     >
       {children}

@@ -15,6 +15,7 @@ import { ProductionPage } from '@/pages/ProductionPage'
 import { MailPage } from '@/pages/MailPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { HomePage } from '@/pages/HomePage'
+import { MobileBlocker } from '@/components/MobileBlocker'
 
 function PageGuard({ page, children }: { page: PageKey; children: ReactNode }) {
   const { user } = useAuth()
@@ -32,8 +33,10 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to={homePath(user)} replace /> : <LoginPage />} />
+    <>
+      <MobileBlocker />
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to={homePath(user)} replace /> : <LoginPage />} />
       <Route element={<AppShell />}>
         <Route path="/" element={<HomePage />} />
         <Route
@@ -124,8 +127,9 @@ export default function App() {
             </PageGuard>
           }
         />
-      </Route>
-      <Route path="*" element={<Navigate to={user ? homePath(user) : '/login'} replace />} />
-    </Routes>
+        </Route>
+        <Route path="*" element={<Navigate to={user ? homePath(user) : '/login'} replace />} />
+      </Routes>
+    </>
   )
 }

@@ -12,7 +12,8 @@ import {
 import type { PageKey } from '../access/pages';
 import type { AuthUser } from '../auth/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEAL_STATUS_LABEL, DEAL_STATUSES } from '../sales/statuses';
+import { SalesPipelineService } from '../sales/sales-pipeline.service';
+import { DEAL_STATUSES, defaultDealPipelineColumns } from '../sales/statuses';
 
 const REVENUE_STATUSES: DealStatus[] = [
   DealStatus.PAID,
@@ -34,18 +35,27 @@ const TASK_LABEL: Record<TaskStatus, string> = {
 };
 
 const MONTH_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const WEEKDAY_SHORT = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+
+export type ChartRange = 'week' | 'month' | 'year' | 'all';
+
+export function parseChartRange(value?: string): ChartRange {
+  if (value === 'week' || value === 'month' || value === 'year' || value === 'all') return value;
+  return 'year';
+}
 
 @Injectable()
 export class HomeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pipeline: SalesPipelineService,
+  ) {}
 
-  async summary(user: AuthUser) {
+  async summary(user: AuthUser, range: ChartRange = 'year') {
     const orgId = user.organizationId;
     const can = (page: PageKey) => user.pages.includes(page);
-    const months = lastSixMonths();
     const monthStart = startOfMonthMoscow();
     const todayStart = startOfTodayMoscow();
-    const currentKey = months[months.length - 1]?.key ?? '';
 
     const [deals, purchases, taskRows, personalOpen, jobs, stock, mailUnread, productCount, counterpartyCount] =
       await Promise.all([
@@ -108,11 +118,13 @@ export class HomeService {
           : Promise.resolve(null),
       ]);
 
-    const monthMap = new Map(months.map((item) => [item.key, { revenue: 0, expenses: 0 }]));
+    const buckets = chartBuckets(range, deals, purchases);
+    const chartMap = new Map(buckets.map((item) => [item.key, { revenue: 0, expenses: 0 }]));
 
     let pipelineCount = 0;
     let pipelineValue = 0;
     let overdueDeals = 0;
+    let revenueMonth = 0;
     const byStatus = new Map<DealStatus, { count: number; value: number }>();
     for (const status of DEAL_STATUSES) byStatus.set(status, { count: 0, value: 0 });
 
@@ -132,8 +144,8 @@ export class HomeService {
           overdueDeals += 1;
         }
         if (REVENUE_STATUSES.includes(deal.status)) {
-          const key = monthKeyFromDate(deal.updatedAt);
-          const row = monthMap.get(key);
+          if (deal.updatedAt >= monthStart) revenueMonth += value;
+          const row = chartMap.get(chartKeyFromDate(deal.updatedAt, range));
           if (row) row.revenue += value;
         }
       }
@@ -142,24 +154,25 @@ export class HomeService {
     let drafts = 0;
     let postedMonth = 0;
     let postedMonthValue = 0;
+    let expensesMonth = 0;
     if (purchases) {
       for (const purchase of purchases) {
         const value = lineTotal(purchase.items);
         if (purchase.status === PurchaseStatus.DRAFT) drafts += 1;
         if (purchase.status === PurchaseStatus.POSTED) {
-          const key = monthKeyFromDate(purchase.purchasedAt);
-          const row = monthMap.get(key);
-          if (row) row.expenses += value;
           if (purchase.purchasedAt >= monthStart) {
             postedMonth += 1;
             postedMonthValue += value;
+            expensesMonth += value;
           }
+          const row = chartMap.get(chartKeyFromDate(purchase.purchasedAt, range));
+          if (row) row.expenses += value;
         }
       }
     }
 
-    const series = months.map((item) => {
-      const row = monthMap.get(item.key) ?? { revenue: 0, expenses: 0 };
+    const series = buckets.map((item) => {
+      const row = chartMap.get(item.key) ?? { revenue: 0, expenses: 0 };
       return {
         key: item.key,
         label: item.label,
@@ -168,9 +181,6 @@ export class HomeService {
         profit: roundMoney(row.revenue - row.expenses),
       };
     });
-    const current = series.find((item) => item.key === currentKey) ?? series[series.length - 1];
-    const revenueMonth = current?.revenue ?? 0;
-    const expensesMonth = current?.expenses ?? 0;
 
     const taskByStatus = Object.values(TaskStatus).map((status) => ({
       status,
@@ -270,15 +280,7 @@ export class HomeService {
       },
       months: deals || purchases ? series : null,
       pipeline: deals
-        ? DEAL_STATUSES.map((status) => {
-            const row = byStatus.get(status) ?? { count: 0, value: 0 };
-            return {
-              status,
-              label: DEAL_STATUS_LABEL[status],
-              count: row.count,
-              value: roundMoney(row.value),
-            };
-          })
+        ? await this.buildPipeline(orgId, byStatus)
         : null,
       tasks: taskRows
         ? {
@@ -299,6 +301,25 @@ export class HomeService {
       },
       attention,
     };
+  }
+
+  private async buildPipeline(
+    organizationId: string,
+    byStatus: Map<DealStatus, { count: number; value: number }>,
+  ) {
+    const columns = await this.pipeline.listForOrg(organizationId);
+    const order = columns.length ? columns : defaultDealPipelineColumns();
+
+    return order.map((column) => {
+      const row = byStatus.get(column.status) ?? { count: 0, value: 0 };
+      return {
+        status: column.status,
+        label: column.label,
+        color: column.color,
+        count: row.count,
+        value: roundMoney(row.value),
+      };
+    });
   }
 
   private async stockSnapshot(organizationId: string) {
@@ -363,16 +384,85 @@ function monthKeyFromDate(date: Date) {
   return monthKey(year, month);
 }
 
-function lastSixMonths() {
-  const { year, month } = moscowParts(new Date());
-  const out: { key: string; label: string }[] = [];
-  for (let i = 5; i >= 0; i -= 1) {
-    const date = new Date(Date.UTC(year, month - 1 - i, 1));
-    const y = date.getUTCFullYear();
-    const m = date.getUTCMonth() + 1;
-    out.push({ key: monthKey(y, m), label: MONTH_SHORT[m - 1] ?? '' });
+function dayKey(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function dayKeyFromDate(date: Date) {
+  const { year, month, day } = moscowParts(date);
+  return dayKey(year, month, day);
+}
+
+function chartKeyFromDate(date: Date, range: ChartRange) {
+  return range === 'week' || range === 'month' ? dayKeyFromDate(date) : monthKeyFromDate(date);
+}
+
+function addCalendarDays(parts: { year: number; month: number; day: number }, delta: number) {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + delta));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+function weekdayLabel(parts: { year: number; month: number; day: number }) {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  return WEEKDAY_SHORT[date.getUTCDay()] ?? '';
+}
+
+function chartBuckets(
+  range: ChartRange,
+  deals: { updatedAt: Date }[] | null,
+  purchases: { purchasedAt: Date }[] | null,
+) {
+  const now = moscowParts(new Date());
+  if (range === 'week' || range === 'month') {
+    const days = range === 'week' ? 7 : 30;
+    const out: { key: string; label: string }[] = [];
+    for (let i = days - 1; i >= 0; i -= 1) {
+      const parts = addCalendarDays(now, -i);
+      out.push({
+        key: dayKey(parts.year, parts.month, parts.day),
+        label: range === 'week' ? weekdayLabel(parts) : `${parts.day} ${MONTH_SHORT[parts.month - 1]}`,
+      });
+    }
+    return out;
   }
-  return out;
+
+  if (range === 'year') {
+    const out: { key: string; label: string }[] = [];
+    for (let i = 11; i >= 0; i -= 1) {
+      const date = new Date(Date.UTC(now.year, now.month - 1 - i, 1));
+      const y = date.getUTCFullYear();
+      const m = date.getUTCMonth() + 1;
+      out.push({ key: monthKey(y, m), label: MONTH_SHORT[m - 1] ?? '' });
+    }
+    return out;
+  }
+
+  let earliest = { year: now.year, month: now.month };
+  const consider = (date: Date) => {
+    const parts = moscowParts(date);
+    if (parts.year < earliest.year || (parts.year === earliest.year && parts.month < earliest.month)) {
+      earliest = { year: parts.year, month: parts.month };
+    }
+  };
+  for (const deal of deals ?? []) consider(deal.updatedAt);
+  for (const purchase of purchases ?? []) consider(purchase.purchasedAt);
+
+  const out: { key: string; label: string }[] = [];
+  let y = earliest.year;
+  let m = earliest.month;
+  const spanYears = y !== now.year;
+  while (y < now.year || (y === now.year && m <= now.month)) {
+    out.push({
+      key: monthKey(y, m),
+      label: spanYears ? `${MONTH_SHORT[m - 1]} ${String(y).slice(2)}` : (MONTH_SHORT[m - 1] ?? ''),
+    });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out.length ? out : [{ key: monthKey(now.year, now.month), label: MONTH_SHORT[now.month - 1] ?? '' }];
 }
 
 function startOfMonthMoscow() {

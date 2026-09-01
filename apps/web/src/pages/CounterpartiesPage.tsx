@@ -26,7 +26,7 @@ export function CounterpartiesPage() {
         </div>
         <Link
           to="/counterparties/new"
-          className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+          className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary shadow-[0_2px_10px_rgba(47,90,112,0.22)] transition-opacity duration-150 hover:opacity-95"
         >
           Новый контрагент
         </Link>
@@ -36,17 +36,17 @@ export function CounterpartiesPage() {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Поиск по названию, ИНН, почте"
-        className="mb-4 h-10 max-w-md rounded-md border-2 border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500"
+        className="mb-4 h-10 max-w-md rounded-xl border border-line bg-white/70 px-3.5 text-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-accent focus:shadow-[0_0_0_3px_rgba(227,148,33,0.22)]"
       />
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border-2 border-slate-300 bg-white">
-        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+      <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
+        <table className="w-full min-w-[860px] border-collapse text-left text-sm">
           <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
             <tr>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Наименование</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">ИНН</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Email</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Telegram</th>
+              <th className="border-b border-line px-3 py-2">Наименование</th>
+              <th className="border-b border-line px-3 py-2">ИНН</th>
+              <th className="border-b border-line px-3 py-2">Юридический адрес</th>
+              <th className="border-b border-line px-3 py-2">Email</th>
             </tr>
           </thead>
           <tbody>
@@ -83,10 +83,8 @@ function CounterpartyRow({ item }: { item: Counterparty }) {
     >
       <td className="px-3 py-2.5 font-medium text-foreground">{item.name}</td>
       <td className="px-3 py-2.5 tabular-nums text-secondary">{item.inn}</td>
+      <td className="max-w-md px-3 py-2.5 text-secondary">{item.legalAddress}</td>
       <td className="px-3 py-2.5 text-secondary">{item.email}</td>
-      <td className="px-3 py-2.5 text-secondary">
-        {item.telegram ? `@${item.telegram}` : 'не подключён'}
-      </td>
     </tr>
   )
 }

@@ -28,28 +28,39 @@ export function Modal({
     }
   }, [onClose])
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-8">
       <button
         type="button"
         aria-label="Закрыть"
-        className="absolute inset-0 bg-foreground/40"
+        className="glass-scrim absolute inset-0"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
-        className={`relative z-10 max-h-[90vh] w-full overflow-auto rounded-t-2xl bg-white p-6 shadow-[0_20px_25px_rgba(15,23,42,0.12)] sm:rounded-2xl ${
+        className={`glass-strong relative z-10 max-h-[90vh] w-full overflow-auto rounded-t-3xl p-6 sm:rounded-3xl ${
           wide === 'xl' ? 'max-w-3xl' : wide ? 'max-w-2xl' : 'max-w-lg'
         }`}
       >
-        <h2 id="dialog-title" className="text-lg font-semibold tracking-[-0.03em] text-foreground">
-          {title}
-        </h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 id="dialog-title" className="text-lg font-semibold tracking-[-0.03em] text-foreground">
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="-mr-1.5 -mt-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-secondary transition-colors duration-150 hover:bg-white/70 hover:text-foreground"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -155,13 +166,13 @@ function AssigneeDialog({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
-      <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-foreground/40" onClick={onClose} />
+    <div className="fixed inset-0 z-[90] flex items-end justify-center sm:items-center">
+      <button type="button" aria-label="Закрыть" className="glass-scrim absolute inset-0" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="assignee-dialog-title"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white p-6 shadow-[0_20px_25px_rgba(15,23,42,0.12)] sm:rounded-2xl"
+        className="glass-strong relative z-10 flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl p-6 sm:rounded-3xl"
       >
         <h2 id="assignee-dialog-title" className="text-lg font-semibold tracking-[-0.03em] text-foreground">
           Ответственные

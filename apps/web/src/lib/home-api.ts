@@ -1,5 +1,7 @@
 import { request } from '@/lib/api'
 
+export type ChartRange = 'week' | 'month' | 'year' | 'all'
+
 export type HomeMonth = {
   key: string
   label: string
@@ -11,6 +13,7 @@ export type HomeMonth = {
 export type HomePipelineRow = {
   status: string
   label: string
+  color: string
   count: number
   value: number
 }
@@ -75,8 +78,8 @@ export type HomeSummary = {
   attention: HomeAttention[]
 }
 
-export function fetchHome() {
-  return request<HomeSummary>('/v1/home')
+export function fetchHome(range: ChartRange = 'year') {
+  return request<HomeSummary>(`/v1/home?range=${range}`)
 }
 
 export function compactMoney(value: number) {

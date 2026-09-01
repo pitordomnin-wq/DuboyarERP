@@ -61,24 +61,25 @@ export function ProductionPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-      <aside className="flex shrink-0 flex-col border-b-2 border-slate-300 md:h-full md:w-72 md:overflow-hidden md:border-r-2 md:border-b-0">
+      <aside className="flex shrink-0 flex-col border-b border-line md:h-full md:w-72 md:overflow-hidden md:border-r md:border-b-0">
         <div className="shrink-0 px-4 py-3 md:px-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Продукция</p>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:min-h-0 md:flex-1 md:flex-col md:overflow-y-auto md:px-2">
-          {types.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setActiveId(item.id)}
-              className={`min-w-[220px] shrink-0 rounded-md px-3 py-2 text-left md:min-w-0 ${
-                item.id === activeId ? 'bg-slate-200 text-foreground' : 'text-secondary hover:bg-slate-100'
-              }`}
-            >
-              <p className="text-sm font-medium">{item.name}</p>
-              <p className="mt-0.5 text-xs text-secondary">{item.stages.length} этап(ов)</p>
-            </button>
-          ))}
+          {types.map((item) => {
+            const active = item.id === activeId
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveId(item.id)}
+                className={`side-item min-w-[220px] shrink-0 flex-col items-start md:min-w-0 ${active ? 'side-item-active' : ''}`}
+              >
+                <span className="text-sm">{item.name}</span>
+                <span className="text-xs text-secondary">{item.stages.length} этап(ов)</span>
+              </button>
+            )
+          })}
         </nav>
       </aside>
 
@@ -98,11 +99,11 @@ export function ProductionPage() {
               {detail.stages.map((stage) => (
                 <section
                   key={stage.id}
-                  className="flex h-full w-[300px] shrink-0 flex-col rounded-lg border-2 border-slate-300 bg-slate-100"
+                  className="glass-well flex h-full w-[300px] shrink-0 flex-col rounded-2xl"
                 >
-                  <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b-2 border-slate-300 px-3">
+                  <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-white/55 px-3">
                     <h2 className="whitespace-nowrap text-sm font-semibold text-foreground">{stage.name}</h2>
-                    <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs tabular-nums text-secondary">
+                    <span className="glass-chip shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums text-secondary">
                       {grouped.get(stage.id)?.length ?? 0}
                     </span>
                   </header>
@@ -112,11 +113,13 @@ export function ProductionPage() {
                         key={job.id}
                         type="button"
                         onClick={() => setOpened(job)}
-                        className="shrink-0 rounded-md border border-slate-300 bg-white p-3 text-left"
+                        className={`glass-chip shrink-0 rounded-xl p-3 text-left transition-[background-color,box-shadow] duration-150 hover:bg-white/85 ${
+                          isRunningJob(job) ? 'job-running' : ''
+                        }`}
                       >
                         <p className="text-sm font-medium text-foreground">{job.dealItem?.name ?? job.title}</p>
                         <p className="mt-1 text-xs text-secondary">
-                          {job.quantity.toLocaleString('ru-RU')} шт · {jobStatusLabel(job)}
+                          {job.quantity.toLocaleString('ru-RU')} {jobUnit(job, detail)} · {jobStatusLabel(job)}
                         </p>
                         {job.deal ? <p className="mt-1 text-xs text-secondary">{job.deal.title}</p> : null}
                       </button>
@@ -153,9 +156,38 @@ export function ProductionPage() {
   )
 }
 
+function isRunningJob(job: ProductionJob) {
+  return job.status === 'ACTIVE' && job.stageStatus === 'IN_PROGRESS'
+}
+
 function jobStatusLabel(job: ProductionJob) {
   if (job.status === 'DONE') return 'Продукция на складе'
+  if (isRunningJob(job)) return 'Запущено'
   return STAGE_STATUS_LABEL[job.stageStatus]
+}
+
+function jobUnit(job: ProductionJob, type: ProductionType | null) {
+  const stage = type?.stages.find((item) => item.id === job.stageId)
+  return job.dealItem?.unit ?? stage?.outputs[0]?.product?.unit ?? type?.product.unit ?? 'шт'
+}
+
+function stageReceipts(stage: ProductionType['stages'][number], type: ProductionType, finishing: boolean) {
+  if (stage.outputs.length > 0) return stage.outputs
+  if (finishing) {
+    return [
+      {
+        id: 'finished',
+        productId: type.productId,
+        quantity: 1,
+        product: type.product,
+      },
+    ]
+  }
+  return []
+}
+
+function formatBomQty(value: number) {
+  return value.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
 }
 
 function JobCardModal({
@@ -174,6 +206,8 @@ function JobCardModal({
   const stage = type.stages.find((item) => item.id === job.stageId)
   const last = type.stages[type.stages.length - 1]
   const finishing = Boolean(stage && last && stage.id === last.id)
+  const receipts = stage ? stageReceipts(stage, type, finishing) : []
+  const hasMoves = Boolean(stage && (stage.inputs.length > 0 || receipts.length > 0))
 
   async function run(action: 'start' | 'complete') {
     setBusy(true)
@@ -190,28 +224,57 @@ function JobCardModal({
     <Modal title={job.dealItem?.name ?? job.title} onClose={onClose} wide>
       <div className="mt-4 flex flex-col gap-3 text-sm">
         <p className="text-secondary">
-          {job.quantity.toLocaleString('ru-RU')} шт · {job.warehouse.name} · {jobStatusLabel(job)}
+          {formatBomQty(job.quantity)} {job.dealItem?.unit ?? type.product.unit} · {job.warehouse.name} · {jobStatusLabel(job)}
         </p>
         {job.deal ? <p className="text-secondary">Заказ: {job.deal.title}</p> : null}
-        {job.status === 'ACTIVE' && job.stageStatus === 'IN_PROGRESS' && stage ? (
-          <div className="rounded-md border-2 border-slate-300 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">При выполнении этапа</p>
-            {stage.inputs.length === 0 && !stage.outputProduct && !finishing ? (
-              <p className="mt-2 text-secondary">Проводок нет — переход на следующий этап</p>
+        {job.status === 'ACTIVE' && stage ? (
+          <div className="rounded-xl border border-line bg-white/40 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">
+              {job.stageStatus === 'TO_START' ? 'На этом этапе' : 'При выполнении этапа'}
+            </p>
+            {hasMoves ? (
+              <div className="mt-3 flex flex-col gap-3">
+                <div>
+                  <p className="text-xs font-medium text-secondary">Списать со склада</p>
+                  {stage.inputs.length === 0 ? (
+                    <p className="mt-1 text-secondary">Ничего</p>
+                  ) : (
+                    <ul className="mt-1 flex flex-col gap-1">
+                      {stage.inputs.map((input) => (
+                        <li key={input.id} className="text-foreground">
+                          {formatBomQty(input.quantity * job.quantity)}{' '}
+                          {input.productGroup
+                            ? `· группа «${input.productGroup.name}» (FIFO)`
+                            : `${input.product?.unit ?? ''} · ${input.product?.name ?? ''}`}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-secondary">
+                    Оприходовать на склад
+                    {(stage.lossPercent ?? 0) > 0 ? ` (потери ${stage.lossPercent}%)` : ''}
+                  </p>
+                  {receipts.length === 0 ? (
+                    <p className="mt-1 text-secondary">Ничего</p>
+                  ) : (
+                    <ul className="mt-1 flex flex-col gap-1">
+                      {receipts.map((output) => {
+                        const factor = Math.max(0, 1 - (stage.lossPercent ?? 0) / 100)
+                        return (
+                          <li key={output.id} className="text-foreground">
+                            {formatBomQty(output.quantity * job.quantity * factor)} {output.product?.unit ?? ''} ·{' '}
+                            {output.product?.name ?? ''}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
             ) : (
-              <ul className="mt-2 flex flex-col gap-1">
-                {stage.inputs.map((input) => (
-                  <li key={input.id} className="text-foreground">
-                    Списать {(input.quantity * job.quantity).toLocaleString('ru-RU')} {input.product.unit} · {input.product.name}
-                  </li>
-                ))}
-                {stage.outputProduct || finishing ? (
-                  <li className="text-foreground">
-                    Оприходовать {job.quantity.toLocaleString('ru-RU')} шт
-                    {stage.outputProduct ? ` · ${stage.outputProduct.name}` : ' · готовая продукция'}
-                  </li>
-                ) : null}
-              </ul>
+              <p className="mt-2 text-secondary">Проводок нет — переход на следующий этап</p>
             )}
           </div>
         ) : null}

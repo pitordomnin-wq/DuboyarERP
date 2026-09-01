@@ -60,6 +60,7 @@ export function TasksPage() {
   const collisionDetection = useMemo(() => detectCollision(columnIds), [columnIds])
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const dragSnapshot = useRef<Task[] | null>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
   const activeTask = activeId ? tasks.find((task) => task.id === activeId) : null
 
   const load = useCallback(async (nextBoard: TaskBoard) => {
@@ -81,6 +82,24 @@ export function TasksPage() {
     void fetchColleagues()
       .then(setPeople)
       .catch(() => setPeople([]))
+  }, [])
+
+  useEffect(() => {
+    const el = boardRef.current
+    if (!el) return
+
+    function onWheel(event: WheelEvent) {
+      const target = boardRef.current
+      if (!target) return
+      const dx = event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX
+      const dy = event.shiftKey && event.deltaX === 0 ? 0 : event.deltaY
+      if (Math.abs(dx) <= Math.abs(dy)) return
+      event.preventDefault()
+      target.scrollLeft += dx
+    }
+
+    el.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    return () => el.removeEventListener('wheel', onWheel, { capture: true })
   }, [])
 
   function applyTask(updated: Task) {
@@ -275,7 +294,10 @@ export function TasksPage() {
         </button>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-4 pb-6 md:px-8">
+      <div
+        ref={boardRef}
+        className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-4 pb-6 md:px-8"
+      >
         {loading ? (
           <p className="text-sm text-secondary">Загрузка</p>
         ) : (
@@ -350,11 +372,7 @@ function BoardTab({
       role="tab"
       aria-selected={selected}
       onClick={onClick}
-      className={`border-b-2 pb-1 text-sm transition-colors duration-200 ${
-        selected
-          ? 'border-foreground font-medium text-foreground'
-          : 'border-transparent text-secondary hover:text-foreground'
-      }`}
+      className={`tab-item pb-1.5 pt-0 ${selected ? 'tab-item-active' : ''}`}
     >
       {children}
     </button>

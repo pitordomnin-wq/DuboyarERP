@@ -15,6 +15,34 @@ export class UpdateOrganizationDto {
   @IsOptional()
   @ValidateIf((_, value) => value != null)
   @IsString()
+  @MaxLength(300)
+  legalName?: string | null;
+
+  @emptyToNull
+  @IsOptional()
+  @ValidateIf((_, value) => value != null)
+  @IsString()
+  @MaxLength(500)
+  brandAddress?: string | null;
+
+  @emptyToNull
+  @IsOptional()
+  @ValidateIf((_, value) => value != null)
+  @IsString()
+  @MaxLength(40)
+  phone?: string | null;
+
+  @emptyToNull
+  @IsOptional()
+  @ValidateIf((_, value) => value != null)
+  @IsString()
+  @MaxLength(120)
+  email?: string | null;
+
+  @emptyToNull
+  @IsOptional()
+  @ValidateIf((_, value) => value != null)
+  @IsString()
   @Matches(/^\d{10}$|^\d{12}$/)
   inn?: string | null;
 

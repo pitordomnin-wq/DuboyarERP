@@ -26,11 +26,13 @@ const TAB_LABEL: Record<Tab, string> = {
 
 export function DealPanel({
   deal,
+  statusLabels = DEAL_STATUS_LABEL,
   onClose,
   onChange,
   onDeleted,
 }: {
   deal: DealDetail
+  statusLabels?: Record<DealStatus, string>
   onClose: () => void
   onChange: (deal: DealDetail) => void
   onDeleted: () => void
@@ -47,9 +49,9 @@ export function DealPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex">
-      <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-foreground/40" onClick={onClose} />
-      <div className="relative z-10 ml-auto flex h-full w-full max-w-3xl flex-col bg-white shadow-[-8px_0_24px_rgba(15,23,42,0.12)]">
-        <header className="flex items-start justify-between gap-4 border-b-2 border-slate-300 px-5 py-4">
+      <button type="button" aria-label="Закрыть" className="glass-scrim absolute inset-0" onClick={onClose} />
+      <div className="glass-panel relative z-10 ml-auto flex h-full w-full max-w-3xl flex-col">
+        <header className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold tracking-[-0.03em] text-foreground">{deal.title}</h2>
             <p className="mt-1 text-sm text-secondary">{deal.counterparty.name}</p>
@@ -58,24 +60,22 @@ export function DealPanel({
             Закрыть
           </button>
         </header>
-        <div className="flex gap-1 overflow-x-auto border-b border-slate-300 px-3">
+        <div className="flex gap-1 overflow-x-auto border-b border-line px-3">
           {TABS.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => setTab(item)}
-              className={`shrink-0 border-b-2 px-3 py-2.5 text-sm ${
-                tab === item
-                  ? 'border-foreground font-medium text-foreground'
-                  : 'border-transparent text-secondary hover:text-foreground'
-              }`}
+              className={`tab-item shrink-0 ${tab === item ? 'tab-item-active' : ''}`}
             >
               {TAB_LABEL[item]}
             </button>
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-5">
-          {tab === 'info' ? <InfoTab deal={deal} onChange={onChange} onDeleted={onDeleted} /> : null}
+          {tab === 'info' ? (
+            <InfoTab deal={deal} statusLabels={statusLabels} onChange={onChange} onDeleted={onDeleted} />
+          ) : null}
           {tab === 'chat' ? <ChatTab deal={deal} onChange={onChange} /> : null}
           {tab === 'docs' ? <DocsTab deal={deal} onChange={onChange} /> : null}
           {tab === 'production' ? <ProductionTab deal={deal} onChange={onChange} /> : null}
@@ -97,10 +97,12 @@ export function DealPanel({
 
 function InfoTab({
   deal,
+  statusLabels,
   onChange,
   onDeleted,
 }: {
   deal: DealDetail
+  statusLabels: Record<DealStatus, string>
   onChange: (deal: DealDetail) => void
   onDeleted: () => void
 }) {
@@ -138,7 +140,7 @@ function InfoTab({
           }}
           className="h-10 rounded-md border-2 border-slate-300 bg-white px-2 text-sm text-foreground"
         >
-          {Object.entries(DEAL_STATUS_LABEL).map(([value, label]) => (
+          {Object.entries(statusLabels).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
@@ -353,7 +355,7 @@ function DocsTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDe
       >
         Сформировать счёт
       </button>
-      <ul className="mt-4 divide-y divide-slate-200 border-2 border-slate-300">
+      <ul className="mt-4 divide-y divide-line border-2 border-slate-300">
         {deal.documents.length === 0 ? (
           <li className="px-3 py-4 text-sm text-secondary">Документов нет</li>
         ) : (
@@ -389,8 +391,8 @@ function DocsTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDe
 
       {previewId ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button type="button" className="absolute inset-0 bg-foreground/60" onClick={() => setPreviewId(null)} />
-          <div className="relative z-10 h-[90vh] w-full max-w-3xl overflow-hidden rounded-md bg-white">
+          <button type="button" className="glass-scrim absolute inset-0" onClick={() => setPreviewId(null)} />
+          <div className="glass-strong relative z-10 h-[90vh] w-full max-w-3xl overflow-hidden rounded-3xl">
             <iframe title="Документ" className="h-full w-full" src={`/v1/deals/${deal.id}/documents/${previewId}/file`} />
           </div>
         </div>
@@ -398,8 +400,8 @@ function DocsTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDe
 
       {sendId ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button type="button" className="absolute inset-0 bg-foreground/40" onClick={() => setSendId(null)} />
-          <div className="relative z-10 w-full max-w-sm rounded-md border-2 border-slate-300 bg-white p-5">
+          <button type="button" className="glass-scrim absolute inset-0" onClick={() => setSendId(null)} />
+          <div className="glass-strong relative z-10 w-full max-w-sm rounded-3xl p-5">
             <p className="font-medium">Куда отправить</p>
             <div className="mt-4 flex flex-col gap-2">
               <button

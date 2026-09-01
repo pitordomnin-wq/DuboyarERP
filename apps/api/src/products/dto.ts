@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,6 +13,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { ProductKind } from '@prisma/client';
 
 const emptyToUndefined = Transform(({ value }: { value: unknown }) =>
   value === '' || value === null ? undefined : value,
@@ -51,6 +53,27 @@ export class UpsertProductDto {
   @IsNumber()
   @Min(0)
   price!: number;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsEnum(ProductKind)
+  kind?: ProductKind;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  groupId?: string;
+
+  @emptyToUndefined
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  groupName?: string;
 
   @emptyToUndefined
   @IsOptional()

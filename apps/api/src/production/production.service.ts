@@ -1,17 +1,23 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DealItemProductionStatus, ProductKind, ProductionJobStatus, ProductionStageStatus, StockMovementType } from '@prisma/client';
+import { DealItemProductionStatus, ProductKind, ProductionJobStatus, ProductionStageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../auth/auth-user';
 import { CreateProductionJobDto, UpsertProductionTypeDto } from './dto';
+import { allocateGroupFifo, createReceiptWithLot, createWriteoffFifo, roundQty } from '../warehouse/stock-lots';
 
 const typeInclude = {
-  product: { select: { id: true, name: true, sku: true } },
+  product: { select: { id: true, name: true, sku: true, unit: true } },
   warehouse: { select: { id: true, name: true } },
   stages: {
     orderBy: { position: 'asc' as const },
     include: {
-      outputProduct: { select: { id: true, name: true, sku: true, unit: true } },
       inputs: {
+        include: {
+          product: { select: { id: true, name: true, sku: true, unit: true } },
+          productGroup: { select: { id: true, name: true } },
+        },
+      },
+      outputs: {
         include: { product: { select: { id: true, name: true, sku: true, unit: true } } },
       },
     },
@@ -22,7 +28,7 @@ const jobInclude = {
   type: { select: { id: true, name: true, productId: true } },
   stage: { select: { id: true, name: true, position: true } },
   deal: { select: { id: true, title: true } },
-  dealItem: { select: { id: true, name: true, productionStatus: true } },
+  dealItem: { select: { id: true, name: true, productionStatus: true, unit: true } },
   warehouse: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
 };
@@ -38,7 +44,7 @@ export class ProductionService {
       include: {
         product: { select: { id: true, name: true, sku: true } },
         warehouse: { select: { id: true, name: true } },
-        stages: { orderBy: { position: 'asc' }, select: { id: true, name: true, position: true } },
+        stages: { orderBy: { position: 'asc' }, select: { id: true, name: true, position: true, lossPercent: true } },
         _count: { select: { jobs: true } },
       },
     });
@@ -96,12 +102,13 @@ export class ProductionService {
           const stage = current.stages[i];
           const next = stages[i];
           await tx.productionStageInput.deleteMany({ where: { stageId: stage.id } });
+          await tx.productionStageOutput.deleteMany({ where: { stageId: stage.id } });
           await tx.productionStage.update({
             where: { id: stage.id },
             data: {
               name: next.name,
-              outputProductId: next.outputProductId,
               inputs: { create: next.inputs.create },
+              outputs: { create: next.outputs.create },
             },
           });
         }
@@ -222,52 +229,97 @@ export class ProductionService {
     const current = type.stages.find((stage) => stage.id === job.stageId);
     if (!current) throw new BadRequestException({ error: 'stage_missing' });
 
-    const writes: { productId: string; type: StockMovementType; quantity: number; note: string }[] = [];
-    for (const input of current.inputs) {
-      const need = input.quantity * job.quantity;
-      const have = await this.balance(job.warehouseId, input.productId);
-      if (have < need) {
-        throw new BadRequestException({
-          error: 'insufficient_stock',
-          name: input.product.name,
-          need,
-          have,
-        });
-      }
-      writes.push({
-        productId: input.productId,
-        type: StockMovementType.WRITEOFF,
-        quantity: need,
-        note: `${job.title} · ${current.name}`,
-      });
-    }
-    const outputId = current.outputProductId ?? type.productId;
+    const lossFactor = Math.max(0, 1 - (current.lossPercent ?? 0) / 100);
     const isLast = !type.stages.find((stage) => stage.position > current.position);
-    if (outputId && (current.outputProductId || isLast)) {
-      writes.push({
-        productId: outputId,
-        type: StockMovementType.RECEIPT,
-        quantity: job.quantity,
-        note: `${job.title} · ${current.name}`,
-      });
-    }
-
+    const receipts =
+      current.outputs.length > 0
+        ? current.outputs
+        : isLast
+          ? [{ productId: type.productId, quantity: 1 }]
+          : [];
     const next = type.stages.find((stage) => stage.position > current.position);
 
     return this.prisma.$transaction(async (tx) => {
-      if (writes.length) {
-        await tx.stockMovement.createMany({
-          data: writes.map((row) => ({
+      for (const input of current.inputs) {
+        const need = roundQty(input.quantity * job.quantity);
+        const note = `${job.title} · ${current.name}`;
+
+        if (input.productGroupId) {
+          const members = await tx.product.findMany({
+            where: { organizationId: user.organizationId, groupId: input.productGroupId },
+            select: { id: true },
+          });
+          if (members.length === 0) {
+            throw new BadRequestException({
+              error: 'empty_group',
+              name: input.productGroup?.name ?? 'группа',
+            });
+          }
+          const plan = await allocateGroupFifo(
+            tx,
+            job.warehouseId,
+            members.map((m) => m.id),
+            need,
+          );
+          if (!plan.ok) {
+            throw new BadRequestException({
+              error: 'insufficient_stock',
+              name: input.productGroup?.name ?? 'группа',
+              need: plan.need,
+              have: plan.have,
+            });
+          }
+          for (const line of plan.lines) {
+            const result = await createWriteoffFifo(tx, {
+              warehouseId: job.warehouseId,
+              productId: line.productId,
+              quantity: line.quantity,
+              note,
+              createdById: user.id,
+              productionJobId: job.id,
+            });
+            if (!result.ok) {
+              throw new BadRequestException({
+                error: 'insufficient_stock',
+                name: input.productGroup?.name ?? 'группа',
+                need: result.need,
+                have: result.have,
+              });
+            }
+          }
+        } else if (input.productId) {
+          const result = await createWriteoffFifo(tx, {
             warehouseId: job.warehouseId,
-            productId: row.productId,
-            type: row.type,
-            quantity: row.quantity,
-            note: row.note,
-            productionJobId: job.id,
+            productId: input.productId,
+            quantity: need,
+            note,
             createdById: user.id,
-          })),
+            productionJobId: job.id,
+          });
+          if (!result.ok) {
+            throw new BadRequestException({
+              error: 'insufficient_stock',
+              name: input.product?.name ?? input.productId,
+              need: result.need,
+              have: result.have,
+            });
+          }
+        }
+      }
+
+      for (const output of receipts) {
+        const qty = roundQty(output.quantity * job.quantity * lossFactor);
+        if (qty <= 0) continue;
+        await createReceiptWithLot(tx, {
+          warehouseId: job.warehouseId,
+          productId: output.productId,
+          quantity: qty,
+          note: `${job.title} · ${current.name}`,
+          createdById: user.id,
+          productionJobId: job.id,
         });
       }
+
       if (!next && job.dealItemId) {
         await tx.dealItem.update({
           where: { id: job.dealItemId },
@@ -296,11 +348,29 @@ export class ProductionService {
     const productIds = [
       ...new Set(
         stages.flatMap((stage) => [
-          ...(stage.outputProductId ? [stage.outputProductId] : []),
-          ...stage.inputs.map((input) => input.productId),
+          ...stage.inputs.map((input) => input.productId).filter((id): id is string => Boolean(id)),
+          ...stage.outputs.map((output) => output.productId),
         ]),
       ),
     ];
+    const groupIds = [
+      ...new Set(
+        stages.flatMap((stage) =>
+          stage.inputs.map((input) => input.productGroupId).filter((id): id is string => Boolean(id)),
+        ),
+      ),
+    ];
+
+    for (const stage of stages) {
+      for (const input of stage.inputs) {
+        const hasProduct = Boolean(input.productId);
+        const hasGroup = Boolean(input.productGroupId);
+        if (hasProduct === hasGroup) {
+          throw new BadRequestException({ error: 'input_xor_required' });
+        }
+      }
+    }
+
     if (productIds.length) {
       const products = await this.prisma.product.findMany({
         where: { organizationId, id: { in: productIds } },
@@ -310,14 +380,31 @@ export class ProductionService {
         throw new BadRequestException({ error: 'product_not_found' });
       }
     }
+    if (groupIds.length) {
+      const groups = await this.prisma.productGroup.findMany({
+        where: { organizationId, id: { in: groupIds } },
+        select: { id: true },
+      });
+      if (groups.length !== groupIds.length) {
+        throw new BadRequestException({ error: 'group_not_found' });
+      }
+    }
+
     return stages.map((stage, index) => ({
       name: stage.name.trim(),
       position: index,
-      outputProductId: stage.outputProductId || null,
+      lossPercent: stage.lossPercent ?? 0,
       inputs: {
         create: stage.inputs.map((input) => ({
-          productId: input.productId,
+          productId: input.productId ?? null,
+          productGroupId: input.productGroupId ?? null,
           quantity: input.quantity,
+        })),
+      },
+      outputs: {
+        create: stage.outputs.map((output) => ({
+          productId: output.productId,
+          quantity: output.quantity,
         })),
       },
     }));
@@ -353,17 +440,5 @@ export class ProductionService {
     });
     if (!item) throw new NotFoundException();
     return item;
-  }
-
-  private async balance(warehouseId: string, productId: string) {
-    const rows = await this.prisma.stockMovement.groupBy({
-      by: ['type'],
-      where: { warehouseId, productId },
-      _sum: { quantity: true },
-    });
-    return rows.reduce((sum, row) => {
-      const qty = row._sum.quantity ?? 0;
-      return sum + (row.type === StockMovementType.RECEIPT ? qty : -qty);
-    }, 0);
   }
 }

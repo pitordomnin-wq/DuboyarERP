@@ -364,14 +364,14 @@ function FilePreview({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-foreground/50" onClick={onClose} />
+      <button type="button" aria-label="Закрыть" className="glass-scrim absolute inset-0" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-file-preview-title"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white"
+        className="glass-strong relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl"
       >
-        <div className="flex items-center justify-between gap-3 border-b-2 border-slate-300 px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
           <h2 id="task-file-preview-title" className="truncate text-sm font-semibold text-foreground">
             {name}
           </h2>

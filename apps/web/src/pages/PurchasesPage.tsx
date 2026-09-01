@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ProductCatalogPicker, type CatalogLine } from '@/components/products/ProductCatalogPicker'
+import { DateField } from '@/components/DateField'
 import { Modal } from '@/components/tasks/TaskModal'
 import { fetchCounterparties, type Counterparty } from '@/lib/counterparties-api'
 import { money } from '@/lib/products-api'
@@ -7,7 +8,6 @@ import {
   addPurchaseDocument,
   createPurchase,
   deletePurchase,
-  deletePurchaseDocument,
   fetchPurchase,
   fetchPurchases,
   postPurchase,
@@ -53,7 +53,7 @@ export function PurchasesPage() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+          className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-on-primary shadow-[0_2px_10px_rgba(47,90,112,0.22)] transition-opacity duration-150 hover:opacity-95"
         >
           Новая закупка
         </button>
@@ -63,19 +63,19 @@ export function PurchasesPage() {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Поиск по номеру, названию или контрагенту"
-        className="mb-4 h-10 max-w-md rounded-md border-2 border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500"
+        className="mb-4 h-10 max-w-md rounded-xl border border-line bg-white/70 px-3.5 text-sm outline-none transition-[border-color,box-shadow] duration-150 focus:border-accent focus:shadow-[0_0_0_3px_rgba(227,148,33,0.22)]"
       />
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border-2 border-slate-300 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto rounded-2xl glass">
         <table className="w-full min-w-[760px] border-collapse text-left text-sm">
           <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
             <tr>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Номер</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Наименование</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Контрагент</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Сумма</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Дата</th>
-              <th className="border-b-2 border-slate-300 px-3 py-2">Статус</th>
+              <th className="border-b border-line px-3 py-2">Номер</th>
+              <th className="border-b border-line px-3 py-2">Наименование</th>
+              <th className="border-b border-line px-3 py-2">Контрагент</th>
+              <th className="border-b border-line px-3 py-2">Сумма</th>
+              <th className="border-b border-line px-3 py-2">Дата</th>
+              <th className="border-b border-line px-3 py-2">Статус</th>
             </tr>
           </thead>
           <tbody>
@@ -224,18 +224,12 @@ function PurchaseFormModal({ onClose, onCreated }: { onClose: () => void; onCrea
           </div>
           <label className="text-xs font-medium text-secondary">
             Дата
-            <input
-              name="purchasedAt"
-              type="date"
-              required
-              defaultValue={todayInput()}
-              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
-            />
+            <DateField name="purchasedAt" required defaultValue={todayInput()} />
           </label>
           <div>
             <p className="text-xs font-medium text-secondary">Позиции</p>
             {items.length > 0 ? (
-              <ul className="mt-1 divide-y divide-slate-200 rounded-md border-2 border-slate-300">
+              <ul className="mt-1 divide-y divide-line rounded-md border-2 border-slate-300">
                 {items.map((item) => (
                   <li key={item.productId} className="flex flex-wrap items-center gap-2 px-2 py-2">
                     <div className="min-w-0 flex-1">
@@ -331,6 +325,7 @@ function PurchaseCardModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   async function load() {
     setCard(await fetchPurchase(id))
@@ -361,7 +356,12 @@ function PurchaseCardModal({
       onChanged()
       onClose()
     } catch {
-      setError('Проведённую закупку удалить нельзя')
+      setConfirming(false)
+      setError(
+        card?.status === 'POSTED'
+          ? 'Нельзя удалить: часть товара уже списана со склада'
+          : 'Не удалось удалить закупку',
+      )
     } finally {
       setBusy(false)
     }
@@ -369,7 +369,8 @@ function PurchaseCardModal({
 
   async function onAddDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
+    const form = event.currentTarget
+    const data = new FormData(form)
     const title = String(data.get('title') ?? '').trim()
     if (!title) return
     setBusy(true)
@@ -381,23 +382,10 @@ function PurchaseCardModal({
         issuedAt: String(data.get('issuedAt') ?? '') || undefined,
         note: String(data.get('note') ?? '').trim() || undefined,
       })
-      event.currentTarget.reset()
+      form.reset()
       await load()
     } catch {
       setError('Не удалось сохранить документ')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onRemoveDocument(documentId: string) {
-    setBusy(true)
-    setError(null)
-    try {
-      await deletePurchaseDocument(id, documentId)
-      await load()
-    } catch {
-      setError('Не удалось удалить документ')
     } finally {
       setBusy(false)
     }
@@ -425,10 +413,10 @@ function PurchaseCardModal({
           <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-secondary">
               <tr>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Позиция</th>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Кол-во</th>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Цена</th>
-                <th className="border-b-2 border-slate-300 px-3 py-2">Сумма</th>
+                <th className="border-b border-line px-3 py-2">Позиция</th>
+                <th className="border-b border-line px-3 py-2">Кол-во</th>
+                <th className="border-b border-line px-3 py-2">Цена</th>
+                <th className="border-b border-line px-3 py-2">Сумма</th>
               </tr>
             </thead>
             <tbody>
@@ -452,7 +440,7 @@ function PurchaseCardModal({
           {card.documents.length === 0 ? (
             <p className="mb-3 text-sm text-secondary">Документов нет</p>
           ) : (
-            <ul className="mb-3 divide-y divide-slate-200 rounded-md border-2 border-slate-300">
+            <ul className="mb-3 divide-y divide-line rounded-md border-2 border-slate-300">
               {card.documents.map((item) => (
                 <li key={item.id} className="flex items-start justify-between gap-2 px-3 py-2 text-sm">
                   <button type="button" onClick={() => setPreviewId(item.id)} className="min-w-0 flex-1 text-left">
@@ -471,14 +459,6 @@ function PurchaseCardModal({
                     >
                       Посмотреть
                     </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void onRemoveDocument(item.id)}
-                      className="text-xs text-secondary hover:text-foreground"
-                    >
-                      Удалить
-                    </button>
                   </div>
                 </li>
               ))}
@@ -495,7 +475,7 @@ function PurchaseCardModal({
             </label>
             <label className="text-xs font-medium text-secondary">
               Дата документа
-              <input name="issuedAt" type="date" className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
+              <DateField name="issuedAt" />
             </label>
             <label className="text-xs font-medium text-secondary sm:col-span-2">
               Комментарий
@@ -510,21 +490,46 @@ function PurchaseCardModal({
         </div>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <div className="flex flex-wrap justify-end gap-3">
-          {card.status === 'DRAFT' ? (
-            <>
-              <button type="button" disabled={busy} onClick={() => void onDelete()} className="h-10 px-3 text-sm text-secondary">
-                Удалить
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {confirming ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-foreground">Удалить закупку?</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onDelete()}
+                className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60"
+              >
+                Да
               </button>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void onPost()}
-                className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+                onClick={() => setConfirming(false)}
+                className="h-10 rounded-md border-2 border-slate-300 px-4 text-sm disabled:opacity-60"
               >
-                Провести
+                Нет
               </button>
-            </>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirming(true)}
+              className="text-sm text-secondary transition-colors duration-200 hover:text-destructive disabled:opacity-60"
+            >
+              Удалить
+            </button>
+          )}
+          {card.status === 'DRAFT' ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onPost()}
+              className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary"
+            >
+              Провести
+            </button>
           ) : (
             <p className="text-sm text-secondary">Проведена {card.createdBy.name}</p>
           )}
@@ -533,9 +538,9 @@ function PurchaseCardModal({
     </Modal>
     {previewId ? (
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <button type="button" aria-label="Закрыть документ" className="absolute inset-0 bg-foreground/60" onClick={() => setPreviewId(null)} />
-        <div className="relative z-10 flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-md bg-white">
-          <div className="flex items-center justify-end border-b-2 border-slate-300 px-3 py-2">
+        <button type="button" aria-label="Закрыть документ" className="glass-scrim absolute inset-0" onClick={() => setPreviewId(null)} />
+        <div className="glass-strong relative z-10 flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl">
+          <div className="flex items-center justify-end border-b border-line px-3 py-2">
             <button type="button" onClick={() => setPreviewId(null)} className="h-10 px-3 text-sm text-secondary">
               Закрыть
             </button>

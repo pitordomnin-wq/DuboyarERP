@@ -7,12 +7,14 @@ import { UpsertProductDto, CreateAttributeTemplateDto } from './dto';
 import {
   isAllowedImageMime,
   MAX_IMAGE_BYTES,
+  resolveResizedImage,
   MAX_IMAGES,
   productImagePath,
   removeProductImageFile,
   resolveImageMime,
   saveProductImage,
 } from './storage';
+import { categoryIdForKind, ensureDefaultCategories } from '../warehouse/stock-lots';
 
 function emptyToNull(value?: string) {
   const trimmed = value?.trim();
@@ -26,6 +28,8 @@ const attributeSelect = { id: true, name: true, value: true, position: true } as
 const productInclude = {
   images: { orderBy: { position: 'asc' as const }, select: imageSelect },
   attributes: { orderBy: { position: 'asc' as const }, select: attributeSelect },
+  category: { select: { id: true, name: true, position: true } },
+  group: { select: { id: true, name: true } },
 };
 
 const templateInclude = {
@@ -72,11 +76,24 @@ export class ProductsService {
 
   async create(user: AuthUser, dto: UpsertProductDto) {
     try {
+      const kind = dto.kind ?? ProductKind.FINISHED;
+      await ensureDefaultCategories(this.prisma, user.organizationId);
+      const categoryId =
+        dto.categoryId ?? (await categoryIdForKind(this.prisma, user.organizationId, kind));
+      if (dto.categoryId) {
+        const cat = await this.prisma.warehouseCategory.findFirst({
+          where: { id: dto.categoryId, organizationId: user.organizationId },
+        });
+        if (!cat) throw new BadRequestException({ error: 'category_not_found' });
+      }
+      const groupId = await this.resolveGroupId(user, dto.groupId, dto.groupName);
       const product = await this.prisma.product.create({
         data: {
           ...this.fields(dto),
           organizationId: user.organizationId,
-          kind: ProductKind.FINISHED,
+          kind,
+          categoryId,
+          groupId: groupId ?? null,
           inCatalog: true,
         },
       });
@@ -89,10 +106,22 @@ export class ProductsService {
 
   async update(user: AuthUser, id: string, dto: UpsertProductDto) {
     await this.owned(user, id);
+    if (dto.categoryId) {
+      const cat = await this.prisma.warehouseCategory.findFirst({
+        where: { id: dto.categoryId, organizationId: user.organizationId },
+      });
+      if (!cat) throw new BadRequestException({ error: 'category_not_found' });
+    }
+    const groupId = await this.resolveGroupId(user, dto.groupId, dto.groupName);
     try {
       await this.prisma.product.update({
         where: { id },
-        data: this.fields(dto),
+        data: {
+          ...this.fields(dto),
+          ...(dto.kind !== undefined ? { kind: dto.kind } : {}),
+          ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId } : {}),
+          ...(groupId !== undefined ? { groupId } : {}),
+        },
       });
       await this.replaceAttributes(id, dto.attributes);
       return this.owned(user, id);
@@ -123,14 +152,13 @@ export class ProductsService {
     }
     let position = product.images.reduce((max, image) => Math.max(max, image.position), -1) + 1;
     for (const file of files) {
-      const mime = resolveImageMime(file.originalname, file.mimetype);
-      const storageKey = await saveProductImage(user.organizationId, file.originalname, file.buffer);
+      const saved = await saveProductImage(user.organizationId, file.originalname, file.buffer);
       await this.prisma.productImage.create({
         data: {
           productId: product.id,
-          storageKey,
-          mimeType: mime,
-          size: file.size,
+          storageKey: saved.storageKey,
+          mimeType: saved.mimeType,
+          size: saved.size,
           position,
         },
       });
@@ -150,14 +178,17 @@ export class ProductsService {
     return this.owned(user, id);
   }
 
-  async file(user: AuthUser, id: string, imageId: string) {
+  async file(user: AuthUser, id: string, imageId: string, width?: number) {
     const product = await this.owned(user, id);
     const image = await this.prisma.productImage.findFirst({
       where: { id: imageId, productId: product.id },
     });
     if (!image) throw new NotFoundException();
-    return new StreamableFile(createReadStream(productImagePath(image.storageKey)), {
-      type: image.mimeType,
+    const resolved = width
+      ? await resolveResizedImage(image.storageKey, width, image.mimeType)
+      : { path: productImagePath(image.storageKey), mimeType: image.mimeType };
+    return new StreamableFile(createReadStream(resolved.path), {
+      type: resolved.mimeType,
       disposition: 'inline',
     });
   }
@@ -289,6 +320,27 @@ export class ProductsService {
       price: dto.price,
       description: emptyToNull(dto.description),
     };
+  }
+
+  private async resolveGroupId(user: AuthUser, groupId?: string, groupName?: string) {
+    if (groupName?.trim()) {
+      const name = groupName.trim();
+      const existing = await this.prisma.productGroup.findUnique({
+        where: { organizationId_name: { organizationId: user.organizationId, name } },
+      });
+      if (existing) return existing.id;
+      const created = await this.prisma.productGroup.create({
+        data: { organizationId: user.organizationId, name },
+      });
+      return created.id;
+    }
+    if (groupId === undefined) return undefined;
+    if (!groupId) return null;
+    const group = await this.prisma.productGroup.findFirst({
+      where: { id: groupId, organizationId: user.organizationId },
+    });
+    if (!group) throw new BadRequestException({ error: 'group_not_found' });
+    return group.id;
   }
 
   private rethrowUnique(error: unknown): never {
