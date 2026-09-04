@@ -282,6 +282,7 @@ model Deal {
   documents      DealDocument[]
   events         DealEvent[]
   productionJobs ProductionJob[]
+  stockMovements StockMovement[]
 
   @@index([organizationId, status, position])
 }
@@ -468,6 +469,8 @@ model StockMovement {
   purchase    Purchase?          @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
   productionJobId String?
   productionJob   ProductionJob? @relation(fields: [productionJobId], references: [id], onDelete: SetNull)
+  dealId      String?
+  deal        Deal?              @relation(fields: [dealId], references: [id], onDelete: SetNull)
   createdById String
   createdBy   User               @relation(fields: [createdById], references: [id])
   createdAt   DateTime           @default(now())
@@ -477,6 +480,7 @@ model StockMovement {
   @@index([warehouseId, productId, createdAt])
   @@index([purchaseId])
   @@index([productionJobId])
+  @@index([dealId])
 }
 
 model StockMovementAllocation {
@@ -562,6 +566,7 @@ enum DealItemProductionStatus {
   NONE
   IN_PRODUCTION
   IN_WAREHOUSE
+  SHIPPED
 }
 
 enum ProductionReleaseType {
@@ -755,14 +760,17 @@ model DealMessage {
 }
 
 model DealDocument {
-  id        String   @id @default(cuid())
-  dealId    String
-  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  title     String
-  kind      String   @default("INVOICE")
-  html      String
-  sentAt    DateTime?
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  dealId     String
+  deal       Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  title      String
+  kind       String    @default("INVOICE")
+  html       String?
+  storageKey String?
+  mimeType   String?
+  size       Int?
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 model DealEvent {

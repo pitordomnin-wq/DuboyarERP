@@ -27,6 +27,27 @@ export type ProductGroup = {
   name: string
   keywords?: string[]
   _count?: { products: number }
+  products?: { id: string; name: string; unit: string; sku: string | null }[]
+}
+
+export function fetchProductGroup(id: string) {
+  return request<ProductGroup>(`/v1/product-groups/${id}`)
+}
+
+export function addProductsToGroup(groupId: string, productIds: string[]) {
+  return request<ProductGroup>(`/v1/product-groups/${groupId}/products`, {
+    method: 'POST',
+    body: JSON.stringify({ productIds }),
+  })
+}
+
+export async function removeProductFromGroup(groupId: string, productId: string) {
+  const res = await fetch(`/v1/product-groups/${groupId}/products/${productId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (res.status === 204) return
+  throw new Error('request_failed')
 }
 
 export type StockRow = {
@@ -50,6 +71,7 @@ export type StockMovement = {
   note: string | null
   createdAt: string
   createdBy: { id: string; name: string }
+  deal?: { id: string; title: string } | null
 }
 
 export type StockCard = {

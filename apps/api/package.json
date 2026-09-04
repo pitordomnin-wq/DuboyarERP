@@ -22,11 +22,14 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
     "multer": "^2.2.0",
     "nodemailer": "^7.0.6",
+    "pdfkit": "^0.20.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
@@ -36,6 +39,7 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^24.13.3",
     "@types/nodemailer": "^7.0.2",
+    "@types/pdfkit": "^0.17.6",
     "prisma": "^6.16.2",
     "tsx": "^4.20.5",
     "typescript": "~5.9.2"

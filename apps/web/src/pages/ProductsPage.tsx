@@ -264,8 +264,19 @@ function ProductFormModal({
       ...(groupName
         ? { groupName }
         : { groupId: String(data.get('groupId') ?? '') || undefined }),
-      attributes: attributesRef.current,
-      coatingRecipe: kind === 'FINISHED' ? coatingRecipeRef.current.filter((row) => row.enabled) : undefined,
+      attributes: attributesRef.current.map((row) => ({ name: row.name, value: row.value })),
+      coatingRecipe:
+        kind === 'FINISHED'
+          ? coatingRecipeRef.current
+              .filter((row) => row.enabled)
+              .map((row) => ({
+                category: row.category,
+                enabled: true,
+                ...(row.normPerM2Kg != null && !Number.isNaN(row.normPerM2Kg)
+                  ? { normPerM2Kg: row.normPerM2Kg }
+                  : {}),
+              }))
+          : undefined,
     }
     if (!input.name || Number.isNaN(input.price)) {
       setError('Укажите название и цену')
@@ -283,10 +294,13 @@ function ProductFormModal({
       }
       onSaved(saved)
     } catch (err) {
+      const code = err instanceof Error ? err.message : ''
       setError(
         !initial && pending.length
-          ? imageError(err instanceof Error ? err.message : '')
-          : 'Не удалось сохранить. Возможно, такой артикул уже есть.',
+          ? imageError(code)
+          : code === 'sku_taken'
+            ? 'Не удалось сохранить. Такой артикул уже есть.'
+            : 'Не удалось сохранить карточку',
       )
     } finally {
       setBusy(false)

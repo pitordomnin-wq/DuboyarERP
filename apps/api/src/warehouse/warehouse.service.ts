@@ -195,7 +195,10 @@ export class WarehouseService {
         where: { warehouseId: warehouse.id, productId: product.id },
         orderBy: { createdAt: 'desc' },
         take: 50,
-        include: { createdBy: { select: { id: true, name: true } } },
+        include: {
+          createdBy: { select: { id: true, name: true } },
+          deal: { select: { id: true, title: true } },
+        },
       }),
       this.prisma.stockMovement.groupBy({
         by: ['type'],
@@ -355,6 +358,37 @@ export class WarehouseService {
         include: { createdBy: { select: { id: true, name: true } } },
       });
     });
+  }
+
+  async getGroup(user: AuthUser, id: string) {
+    const group = await this.prisma.productGroup.findFirst({
+      where: { id, organizationId: user.organizationId },
+      include: {
+        products: { select: { id: true, name: true, unit: true, sku: true }, orderBy: { name: 'asc' } },
+        _count: { select: { products: true } },
+      },
+    });
+    if (!group) throw new NotFoundException();
+    return group;
+  }
+
+  async addProductsToGroup(user: AuthUser, groupId: string, productIds: string[]) {
+    await this.getGroup(user, groupId);
+    if (!productIds.length) return this.getGroup(user, groupId);
+    await this.prisma.product.updateMany({
+      where: { organizationId: user.organizationId, id: { in: productIds } },
+      data: { groupId },
+    });
+    return this.getGroup(user, groupId);
+  }
+
+  async removeProductFromGroup(user: AuthUser, groupId: string, productId: string) {
+    await this.getGroup(user, groupId);
+    await this.prisma.product.updateMany({
+      where: { organizationId: user.organizationId, id: productId, groupId },
+      data: { groupId: null },
+    });
+    return this.getGroup(user, groupId);
   }
 
   async listGroups(user: AuthUser) {

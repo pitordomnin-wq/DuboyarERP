@@ -468,12 +468,15 @@ function MovementRow({ item, unit }: { item: StockMovement; unit: string }) {
       </span>
       <div className="min-w-0">
         <p className="text-sm text-foreground">
-          {receipt ? 'Приход' : 'Списание'} {formatQty(item.quantity)} {unit}
+          {receipt ? 'Приход' : item.deal ? 'Отгрузка' : 'Списание'} {formatQty(item.quantity)} {unit}
         </p>
         <p className="mt-0.5 text-xs leading-5 text-secondary">
           {item.createdBy.name} ·{' '}
           {new Date(item.createdAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}
         </p>
+        {item.deal ? (
+          <p className="mt-0.5 text-xs leading-5 text-secondary">Сделка: {item.deal.title}</p>
+        ) : null}
         {item.note ? <p className="mt-0.5 text-xs leading-5 text-secondary">{item.note}</p> : null}
       </div>
     </li>

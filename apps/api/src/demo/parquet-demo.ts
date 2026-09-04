@@ -53,6 +53,7 @@ function at(month: number, day: number, hour = 10, minute = 0) {
 
 export async function clearOrganizationOperations(db: DemoDb, organizationId: string) {
   await db.mailMessage.deleteMany({ where: { organizationId } })
+  await db.lkpNorm.deleteMany({ where: { organizationId } })
   await db.productionJob.deleteMany({ where: { organizationId } })
   await db.productionType.deleteMany({ where: { organizationId } })
   await db.purchase.deleteMany({ where: { organizationId } })

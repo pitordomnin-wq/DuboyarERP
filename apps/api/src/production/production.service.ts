@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   DealItemProductionStatus,
+  DealStatus,
   LayoutMaterialRole,
   LkpMaterialCategory,
   Prisma,
@@ -12,19 +13,32 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../auth/auth-user';
-import { CreateProductionJobDto, ImportTechCardDto, UpsertProductionTypeDto } from './dto';
-import { allocateGroupFifo, createReceiptWithLot, createWriteoffFifo, roundQty } from '../warehouse/stock-lots';
+import { CreateProductionJobDto, CompleteJobDto, ImportTechCardDto, UpsertProductionTypeDto } from './dto';
+import { createReceiptWithLot, createWriteoffFifo, reverseProductionMovements, roundQty } from '../warehouse/stock-lots';
 import { LkpNormsService } from './lkp-norms.service';
-import { writeoffByGroup, writeoffByKeywords } from './material-writeoff';
+import {
+  writeoffByGroup,
+  writeoffByKeywords,
+  planWriteoffByGroup,
+  planWriteoffByKeywords,
+  listGroupStockCandidates,
+  listKeywordStockCandidates,
+  listWarehouseStockCandidates,
+  type WriteoffPlanLine,
+} from './material-writeoff';
 import {
   LKP_CATEGORY_LABEL,
+  buildStage1InputDrafts,
+  buildStage4InputDrafts,
   computeEffectiveM2,
   computePackageCount,
   computePieceCount,
   defaultQuantityBasis,
   inferReleaseType,
+  jobQuantitiesFromDealItem,
   layoutKeywords,
   layoutRoleForRelease,
+  packagesFromPieces,
   resolveBasisQuantity,
 } from './production-norms';
 
@@ -156,87 +170,19 @@ export class ProductionService {
     });
     if (!product) throw new BadRequestException({ error: 'product_not_found' });
 
+    const releaseType = dto.defaultReleaseType ?? inferReleaseType(product.name);
     const stage1Rows = dto.rows.filter((row) => row.stage === 1);
     const stage3Rows = dto.rows.filter((row) => row.stage === 3);
     const stage4Rows = dto.rows.filter((row) => row.stage === 4);
 
-    const stage1Inputs = await Promise.all(
-      stage1Rows.map(async (row) => {
-        const norm = row.normDeckM2 ?? row.normHerringboneM2 ?? 0;
-        if (row.productGroupName) {
-          const group = await this.ensureGroup(user.organizationId, row.productGroupName, [row.materialName]);
-          return {
-            inputMode: 'GROUP' as StageInputMode,
-            productGroupId: group.id,
-            quantity: norm,
-            quantityBasis: 'M2' as StageQuantityBasis,
-          };
-        }
-        const lower = row.materialName.toLowerCase();
-        if (lower.includes('шпон') && lower.includes('дуб')) {
-          return {
-            inputMode: 'KEYWORD' as StageInputMode,
-            layoutRole: 'VENEER_OAK' as LayoutMaterialRole,
-            keyword: 'шпон дуб',
-            quantity: row.normDeckM2 ?? row.normHerringboneM2 ?? 1.125,
-            quantityBasis: 'M2' as StageQuantityBasis,
-          };
-        }
-        if (lower.includes('шпон') && lower.includes('690')) {
-          return {
-            inputMode: 'KEYWORD' as StageInputMode,
-            layoutRole: 'VENEER_HERRINGBONE' as LayoutMaterialRole,
-            keyword: 'шпон 690',
-            quantity: row.normHerringboneM2 ?? norm,
-            quantityBasis: 'M2' as StageQuantityBasis,
-          };
-        }
-        if (lower.includes('шпон')) {
-          return {
-            inputMode: 'KEYWORD' as StageInputMode,
-            layoutRole: 'VENEER_DECK' as LayoutMaterialRole,
-            keyword: 'шпон 1400',
-            quantity: row.normDeckM2 ?? norm,
-            quantityBasis: 'M2' as StageQuantityBasis,
-          };
-        }
-        const group = await this.ensureGroup(user.organizationId, this.groupNameFromMaterial(row.materialName), [
-          this.keywordFromMaterial(row.materialName),
-        ]);
-        return {
-          inputMode: 'GROUP' as StageInputMode,
-          productGroupId: group.id,
-          quantity: norm,
-          quantityBasis: 'M2' as StageQuantityBasis,
-        };
-      }),
+    const stage1Inputs = await this.resolveInputDrafts(
+      user.organizationId,
+      buildStage1InputDrafts(stage1Rows, releaseType),
     );
-
-    const stage4Inputs = stage4Rows.map((row) => {
-      const lower = row.materialName.toLowerCase();
-      if (lower.includes('короб') && lower.includes('т23')) {
-        return {
-          inputMode: 'KEYWORD' as StageInputMode,
-          layoutRole: 'BOX_HERRINGBONE' as LayoutMaterialRole,
-          quantity: 1,
-          quantityBasis: 'PACKAGE' as StageQuantityBasis,
-        };
-      }
-      if (lower.includes('короб') && lower.includes('т24')) {
-        return {
-          inputMode: 'KEYWORD' as StageInputMode,
-          layoutRole: 'BOX_DECK' as LayoutMaterialRole,
-          quantity: 1,
-          quantityBasis: 'PACKAGE' as StageQuantityBasis,
-        };
-      }
-      return {
-        inputMode: 'KEYWORD' as StageInputMode,
-        layoutRole: 'PACK_UNIVERSAL' as LayoutMaterialRole,
-        quantity: 1,
-        quantityBasis: 'PACKAGE' as StageQuantityBasis,
-      };
-    });
+    const stage4Inputs = await this.resolveInputDrafts(
+      user.organizationId,
+      buildStage4InputDrafts(stage4Rows, releaseType),
+    );
 
   void stage3Rows;
 
@@ -326,6 +272,205 @@ export class ProductionService {
     return this.getOwnedJob(user, id);
   }
 
+  async listJobWriteoffs(user: AuthUser, id: string) {
+    const job = await this.getOwnedJob(user, id);
+    return this.prisma.stockMovement.findMany({
+      where: { productionJobId: job.id, type: 'WRITEOFF' },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        product: { select: { id: true, name: true, unit: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async previewJobWriteoffs(user: AuthUser, id: string) {
+    const job = await this.getOwnedJob(user, id);
+    const type = await this.getOwnedType(user, job.typeId);
+    const current = type.stages.find((stage) => stage.id === job.stageId);
+    if (!current) throw new BadRequestException({ error: 'stage_missing' });
+
+    const profilingStage = type.stages.find((stage) => stage.position === 1);
+    const profilingLoss = profilingStage?.lossPercent ?? 20;
+    const typeQty = {
+      piecesPerM2: type.piecesPerM2,
+      m2PerPackageDeck: type.m2PerPackageDeck,
+      m2PerPackageHerringbone: type.m2PerPackageHerringbone,
+    };
+    const jobQty = {
+      quantityM2: job.quantityM2,
+      pieceCount: job.pieceCount,
+      packageCount: job.packageCount,
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      const lines: WriteoffPlanLine[] = [];
+      let slotIndex = 0;
+      const warehouseCandidates = await listWarehouseStockCandidates(
+        tx,
+        user.organizationId,
+        job.warehouseId,
+      );
+
+      const pushLine = async (
+        base: Omit<WriteoffPlanLine, 'slotKey' | 'label' | 'candidates'> & {
+          label: string;
+          groupId?: string | null;
+          keywords?: string[];
+        },
+      ) => {
+        slotIndex += 1;
+        let candidates =
+          base.groupId != null
+            ? await listGroupStockCandidates(tx, user.organizationId, job.warehouseId, base.groupId)
+            : base.keywords?.length
+              ? await listKeywordStockCandidates(
+                  tx,
+                  user.organizationId,
+                  job.warehouseId,
+                  base.keywords,
+                )
+              : [];
+        if (!candidates.length) candidates = warehouseCandidates;
+        lines.push({
+          ...base,
+          slotKey: `slot-${slotIndex}`,
+          label: base.label,
+          candidates,
+        });
+      };
+
+      for (const input of current.inputs) {
+        const basis = input.quantityBasis ?? defaultQuantityBasis(current.position, input.inputMode);
+        const basisQty = resolveBasisQuantity(basis, jobQty, profilingLoss, typeQty, job.releaseType);
+        const need = roundQty(input.quantity * basisQty);
+
+        if (input.inputMode === 'LKP_RECIPE') {
+          const lkpM2 = computeEffectiveM2(job.quantityM2, profilingLoss);
+          const categories: LkpMaterialCategory[] = ['PRIMER', 'LACQUER_OIL', 'PASTE', 'DYE', 'PIGMENT'];
+          for (const category of categories) {
+            const resolved = await this.lkpNorms.resolveNorm(user.organizationId, type.productId, category);
+            if (!resolved) continue;
+            const lkpNeed = roundQty(resolved.normPerM2Kg * lkpM2);
+            if (lkpNeed <= 0) continue;
+            const plan = await planWriteoffByKeywords(tx, {
+              organizationId: user.organizationId,
+              warehouseId: job.warehouseId,
+              keywords: resolved.keywords,
+              quantity: lkpNeed,
+              label: LKP_CATEGORY_LABEL[category],
+            });
+            if (plan.ok) {
+              for (const line of plan.lines) {
+                await pushLine({
+                  ...line,
+                  label: LKP_CATEGORY_LABEL[category],
+                  keywords: resolved.keywords,
+                });
+              }
+            } else {
+              await pushLine({
+                productId: '',
+                productName: `${LKP_CATEGORY_LABEL[category]} — выберите со склада`,
+                unit: 'кг',
+                quantity: lkpNeed,
+                label: LKP_CATEGORY_LABEL[category],
+                keywords: resolved.keywords,
+              });
+            }
+          }
+          continue;
+        }
+
+        if (input.inputMode === 'KEYWORD' || input.layoutRole) {
+          const role = input.layoutRole;
+          if (role && !layoutRoleForRelease(role, job.releaseType)) continue;
+          const keywords = input.keyword
+            ? input.keyword.split(/[,;]+/).map((part) => part.trim().toLowerCase()).filter(Boolean)
+            : role
+              ? layoutKeywords(role)
+              : [];
+          const label = role ?? input.keyword ?? 'материал';
+          const plan = await planWriteoffByKeywords(tx, {
+            organizationId: user.organizationId,
+            warehouseId: job.warehouseId,
+            keywords,
+            quantity: need,
+            label,
+          });
+          if (plan.ok) {
+            for (const line of plan.lines) {
+              await pushLine({ ...line, label, keywords });
+            }
+          } else {
+            await pushLine({
+              productId: '',
+              productName: `${label} — выберите со склада`,
+              unit: '',
+              quantity: need,
+              label,
+              keywords,
+            });
+          }
+          continue;
+        }
+
+        if (input.productGroupId) {
+          const filterKeywords = input.keyword
+            ? input.keyword.split(/[,;]+/).map((part) => part.trim().toLowerCase()).filter(Boolean)
+            : undefined;
+          const groupName = input.productGroup?.name ?? 'группа';
+          const plan = await planWriteoffByGroup(tx, {
+            organizationId: user.organizationId,
+            warehouseId: job.warehouseId,
+            groupId: input.productGroupId,
+            groupName,
+            filterKeywords,
+            quantity: need,
+          });
+          if (plan.ok) {
+            for (const line of plan.lines) {
+              await pushLine({
+                ...line,
+                label: groupName,
+                groupId: input.productGroupId,
+                groupName,
+              });
+            }
+          } else {
+            await pushLine({
+              productId: '',
+              productName: `${groupName}${filterKeywords?.length ? ` (${filterKeywords.join(', ')})` : ''} — выберите со склада`,
+              unit: '',
+              quantity: need,
+              label: groupName,
+              groupId: input.productGroupId,
+              groupName,
+            });
+          }
+          continue;
+        }
+
+        if (input.productId) {
+          const product = await tx.product.findUnique({
+            where: { id: input.productId },
+            select: { id: true, name: true, unit: true },
+          });
+          if (product) {
+            await pushLine({
+              productId: product.id,
+              productName: product.name,
+              unit: product.unit,
+              quantity: need,
+              label: product.name,
+            });
+          }
+        }
+      }
+      return lines;
+    });
+  }
+
   async createJob(user: AuthUser, dto: CreateProductionJobDto) {
     const item = await this.prisma.dealItem.findFirst({
       where: { id: dto.dealItemId, deal: { organizationId: user.organizationId } },
@@ -354,9 +499,13 @@ export class ProductionService {
       dto.releaseType ??
       type.defaultReleaseType ??
       inferReleaseType(item.product?.name ?? item.name);
-    const quantityM2 = item.unit.trim().toLowerCase() === 'м²' || item.unit.trim().toLowerCase() === 'м2'
-      ? item.quantity
-      : item.quantity;
+    const { quantity, quantityM2, packageCount } = jobQuantitiesFromDealItem({
+      quantity: item.quantity,
+      unit: item.unit,
+      releaseType,
+      m2PerPackageDeck: type.m2PerPackageDeck,
+      m2PerPackageHerringbone: type.m2PerPackageHerringbone,
+    });
 
     const job = await this.prisma.$transaction(async (tx) => {
       await tx.dealItem.update({
@@ -372,8 +521,9 @@ export class ProductionService {
           dealId: item.dealId,
           dealItemId: item.id,
           title: `${item.deal.title} · ${item.name}`,
-          quantity: quantityM2,
+          quantity,
           quantityM2,
+          packageCount: packageCount ?? undefined,
           releaseType,
           stageStatus: ProductionStageStatus.TO_START,
           position: (last?.position ?? 0) + 1000,
@@ -404,7 +554,101 @@ export class ProductionService {
     });
   }
 
-  async completeJob(user: AuthUser, id: string) {
+  async rollbackJob(user: AuthUser, id: string) {
+    const job = await this.getOwnedJob(user, id);
+    const type = await this.getOwnedType(user, job.typeId);
+    const current = type.stages.find((stage) => stage.id === job.stageId);
+    if (!current) throw new BadRequestException({ error: 'stage_missing' });
+
+    // Undo "start" — no stock changes yet.
+    if (job.status === ProductionJobStatus.ACTIVE && job.stageStatus === ProductionStageStatus.IN_PROGRESS) {
+      return this.prisma.productionJob.update({
+        where: { id: job.id },
+        data: { stageStatus: ProductionStageStatus.TO_START },
+        include: jobInclude,
+      });
+    }
+
+    // Undo last completed stage (or reopen finished job).
+    const canUndoComplete =
+      (job.status === ProductionJobStatus.ACTIVE && job.stageStatus === ProductionStageStatus.TO_START) ||
+      job.status === ProductionJobStatus.DONE;
+    if (!canUndoComplete) {
+      throw new BadRequestException({ error: 'nothing_to_rollback' });
+    }
+
+    const previous =
+      job.status === ProductionJobStatus.DONE
+        ? current
+        : type.stages
+            .filter((stage) => stage.position < current.position)
+            .sort((a, b) => b.position - a.position)[0];
+    if (!previous) {
+      throw new BadRequestException({ error: 'nothing_to_rollback' });
+    }
+
+    const note = `${job.title} · ${previous.name}`;
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await reverseProductionMovements(tx, { productionJobId: job.id, note });
+
+        if (job.dealItemId && job.status === ProductionJobStatus.DONE) {
+          await tx.dealItem.update({
+            where: { id: job.dealItemId },
+            data: { productionStatus: DealItemProductionStatus.IN_PRODUCTION },
+          });
+        }
+        if (job.dealId) {
+          await tx.dealEvent.create({
+            data: {
+              dealId: job.dealId,
+              text: `${user.name} откатил этап «${previous.name}»`,
+            },
+          });
+        }
+
+        const patch: {
+          stageId: string;
+          stageStatus: ProductionStageStatus;
+          status: ProductionJobStatus;
+          quantity?: number;
+          pieceCount?: number | null;
+          packageCount?: number | null;
+        } = {
+          stageId: previous.id,
+          stageStatus: ProductionStageStatus.IN_PROGRESS,
+          status: ProductionJobStatus.ACTIVE,
+        };
+
+        // Restore working quantity for the stage we return to.
+        if (previous.position <= 0) {
+          patch.pieceCount = null;
+          patch.quantity = job.packageCount ?? job.quantityM2;
+        } else if (previous.position < 3) {
+          patch.quantity = job.pieceCount ?? job.quantity;
+        } else {
+          patch.quantity = job.packageCount ?? job.quantity;
+        }
+
+        return tx.productionJob.update({
+          where: { id: job.id },
+          data: patch,
+          include: jobInclude,
+        });
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'receipt_lot_consumed') {
+        throw new BadRequestException({
+          error: 'cannot_rollback',
+          message: 'Нельзя откатить: продукция уже списана со склада',
+        });
+      }
+      throw error;
+    }
+  }
+
+  async completeJob(user: AuthUser, id: string, dto?: CompleteJobDto) {
     const job = await this.getOwnedJob(user, id);
     if (job.status === ProductionJobStatus.DONE) {
       throw new BadRequestException({ error: 'already_done' });
@@ -440,68 +684,46 @@ export class ProductionService {
     const next = type.stages.find((stage) => stage.position > current.position);
 
     const pieceCount = computePieceCount(job.quantityM2, profilingLoss, type.piecesPerM2);
-    const packageCount = computePackageCount(
-      job.quantityM2,
-      profilingLoss,
-      job.releaseType,
-      type.m2PerPackageDeck,
-      type.m2PerPackageHerringbone,
-    );
+    const packageCount =
+      job.packageCount ??
+      (job.pieceCount != null
+        ? packagesFromPieces(
+            job.pieceCount,
+            type.piecesPerM2,
+            job.releaseType,
+            type.m2PerPackageDeck,
+            type.m2PerPackageHerringbone,
+          )
+        : computePackageCount(
+            job.quantityM2,
+            profilingLoss,
+            job.releaseType,
+            type.m2PerPackageDeck,
+            type.m2PerPackageHerringbone,
+          ));
+
+    // On packaging stage, outputs are finished packages (pieces → packages).
+    const jobQtyForOutputs = {
+      ...jobQty,
+      packageCount,
+    };
+
+    const manualWriteoffs = dto?.writeoffs?.filter((item) => item.productId && item.quantity > 0) ?? null;
 
     return this.prisma.$transaction(async (tx) => {
       const note = `${job.title} · ${current.name}`;
 
-      for (const input of current.inputs) {
-        const basis = input.quantityBasis ?? defaultQuantityBasis(current.position, input.inputMode);
-        const basisQty = resolveBasisQuantity(basis, jobQty, profilingLoss, typeQty, job.releaseType);
-        const need = roundQty(input.quantity * basisQty);
-
-        if (input.inputMode === 'LKP_RECIPE') {
-          await this.writeoffLkpRecipe(tx, user, job, type.productId, note, profilingLoss);
-          continue;
-        }
-
-        if (input.inputMode === 'KEYWORD' || input.layoutRole) {
-          const role = input.layoutRole;
-          if (role && !layoutRoleForRelease(role, job.releaseType)) continue;
-          const keywords = input.keyword
-            ? input.keyword.split(/[,;]+/).map((part) => part.trim().toLowerCase()).filter(Boolean)
-            : role
-              ? layoutKeywords(role)
-              : [];
-          await writeoffByKeywords(tx, {
-            organizationId: user.organizationId,
-            warehouseId: job.warehouseId,
-            keywords,
-            quantity: need,
-            note,
-            createdById: user.id,
-            productionJobId: job.id,
-            label: role ?? input.keyword ?? 'материал',
+      if (manualWriteoffs) {
+        for (const line of manualWriteoffs) {
+          const product = await tx.product.findFirst({
+            where: { id: line.productId, organizationId: user.organizationId },
+            select: { id: true, name: true },
           });
-          continue;
-        }
-
-        if (input.productGroupId) {
-          await writeoffByGroup(tx, {
-            organizationId: user.organizationId,
-            warehouseId: job.warehouseId,
-            groupId: input.productGroupId,
-            groupName: input.productGroup?.name ?? 'группа',
-            groupKeywords: input.productGroup?.keywords ?? [],
-            quantity: need,
-            note,
-            createdById: user.id,
-            productionJobId: job.id,
-          });
-          continue;
-        }
-
-        if (input.productId) {
+          if (!product) throw new BadRequestException({ error: 'product_not_found', name: line.productId });
           const result = await createWriteoffFifo(tx, {
             warehouseId: job.warehouseId,
-            productId: input.productId,
-            quantity: need,
+            productId: product.id,
+            quantity: roundQty(line.quantity),
             note,
             createdById: user.id,
             productionJobId: job.id,
@@ -509,17 +731,92 @@ export class ProductionService {
           if (!result.ok) {
             throw new BadRequestException({
               error: 'insufficient_stock',
-              name: input.product?.name ?? input.productId,
+              name: product.name,
               need: result.need,
               have: result.have,
             });
+          }
+        }
+      } else {
+        for (const input of current.inputs) {
+          const basis = input.quantityBasis ?? defaultQuantityBasis(current.position, input.inputMode);
+          const basisQty = resolveBasisQuantity(basis, jobQty, profilingLoss, typeQty, job.releaseType);
+          const need = roundQty(input.quantity * basisQty);
+
+          if (input.inputMode === 'LKP_RECIPE') {
+            await this.writeoffLkpRecipe(tx, user, job, type.productId, note, profilingLoss);
+            continue;
+          }
+
+          if (input.inputMode === 'KEYWORD' || input.layoutRole) {
+            const role = input.layoutRole;
+            if (role && !layoutRoleForRelease(role, job.releaseType)) continue;
+            const keywords = input.keyword
+              ? input.keyword.split(/[,;]+/).map((part) => part.trim().toLowerCase()).filter(Boolean)
+              : role
+                ? layoutKeywords(role)
+                : [];
+            await writeoffByKeywords(tx, {
+              organizationId: user.organizationId,
+              warehouseId: job.warehouseId,
+              keywords,
+              quantity: need,
+              note,
+              createdById: user.id,
+              productionJobId: job.id,
+              label: role ?? input.keyword ?? 'материал',
+            });
+            continue;
+          }
+
+          if (input.productGroupId) {
+            const filterKeywords = input.keyword
+              ? input.keyword.split(/[,;]+/).map((part) => part.trim().toLowerCase()).filter(Boolean)
+              : undefined;
+            await writeoffByGroup(tx, {
+              organizationId: user.organizationId,
+              warehouseId: job.warehouseId,
+              groupId: input.productGroupId,
+              groupName: input.productGroup?.name ?? 'группа',
+              filterKeywords,
+              quantity: need,
+              note,
+              createdById: user.id,
+              productionJobId: job.id,
+            });
+            continue;
+          }
+
+          if (input.productId) {
+            const result = await createWriteoffFifo(tx, {
+              warehouseId: job.warehouseId,
+              productId: input.productId,
+              quantity: need,
+              note,
+              createdById: user.id,
+              productionJobId: job.id,
+            });
+            if (!result.ok) {
+              throw new BadRequestException({
+                error: 'insufficient_stock',
+                name: input.product?.name ?? input.productId,
+                need: result.need,
+                have: result.have,
+              });
+            }
           }
         }
       }
 
       const outputBasis =
         current.position >= 3 ? 'PACKAGE' : current.position >= 2 ? 'PIECE' : 'M2';
-      const outputBasisQty = resolveBasisQuantity(outputBasis, jobQty, profilingLoss, typeQty, job.releaseType);
+      const outputBasisQty = resolveBasisQuantity(
+        outputBasis,
+        current.position >= 3 ? jobQtyForOutputs : jobQty,
+        profilingLoss,
+        typeQty,
+        job.releaseType,
+      );
 
       for (const output of receipts) {
         const qty = roundQty(output.quantity * outputBasisQty * lossFactor);
@@ -547,6 +844,19 @@ export class ProductionService {
             text: `${user.name} завершил производство: ${job.dealItem?.name ?? job.title}. Продукция на складе`,
           },
         });
+        const deal = await tx.deal.findUnique({ where: { id: job.dealId } });
+        const terminal: DealStatus[] = [
+          DealStatus.TO_DELIVERY,
+          DealStatus.DELIVERED,
+          DealStatus.RETURNED,
+          DealStatus.CLOSED,
+        ];
+        if (deal && !terminal.includes(deal.status) && deal.status !== DealStatus.SHIPPED_TO_WAREHOUSE) {
+          await tx.deal.update({
+            where: { id: job.dealId },
+            data: { status: DealStatus.SHIPPED_TO_WAREHOUSE },
+          });
+        }
       }
 
       const jobPatch: {
@@ -564,7 +874,8 @@ export class ProductionService {
         jobPatch.pieceCount = pieceCount;
         jobPatch.quantity = pieceCount;
       }
-      if (!next) {
+      // Packaging stage: switch accounting from pieces to packages.
+      if (current.position >= 3 || !next) {
         jobPatch.packageCount = packageCount;
         jobPatch.quantity = packageCount;
       }
@@ -684,6 +995,39 @@ export class ProductionService {
     }));
   }
 
+  private async resolveInputDrafts(organizationId: string, drafts: ReturnType<typeof buildStage1InputDrafts>) {
+    const inputs: {
+      inputMode: StageInputMode;
+      quantity: number;
+      quantityBasis: StageQuantityBasis;
+      productGroupId?: string;
+      keyword?: string;
+      layoutRole?: LayoutMaterialRole;
+    }[] = [];
+
+    for (const draft of drafts) {
+      if (draft.kind === 'group') {
+        const group = await this.ensureGroup(organizationId, draft.groupName, draft.keywords);
+        inputs.push({
+          inputMode: 'GROUP',
+          productGroupId: group.id,
+          keyword: draft.filterKeywords?.join(', ') || undefined,
+          quantity: draft.quantity,
+          quantityBasis: draft.quantityBasis,
+        });
+        continue;
+      }
+      inputs.push({
+        inputMode: 'KEYWORD',
+        layoutRole: draft.layoutRole,
+        keyword: draft.keyword,
+        quantity: draft.quantity,
+        quantityBasis: draft.quantityBasis,
+      });
+    }
+    return inputs;
+  }
+
   private async ensureGroup(organizationId: string, name: string, keywords: string[]) {
     const existing = await this.prisma.productGroup.findUnique({
       where: { organizationId_name: { organizationId, name } },
@@ -692,20 +1036,6 @@ export class ProductionService {
     return this.prisma.productGroup.create({
       data: { organizationId, name, keywords },
     });
-  }
-
-  private groupNameFromMaterial(materialName: string): string {
-    const lower = materialName.toLowerCase();
-    if (lower.includes('клей') || lower.includes('смола')) return 'Клеи';
-    if (lower.includes('хдф') || lower.includes('hdf')) return 'ХДФ';
-    return materialName.slice(0, 40);
-  }
-
-  private keywordFromMaterial(materialName: string): string {
-    const lower = materialName.toLowerCase();
-    if (lower.includes('клей') || lower.includes('смола')) return 'клей';
-    if (lower.includes('хдф') || lower.includes('hdf')) return 'хдф';
-    return lower.split(' ')[0] ?? lower;
   }
 
   private async assertWarehouse(user: AuthUser, warehouseId: string) {

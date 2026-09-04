@@ -14,10 +14,9 @@ import {
 import { UserRole } from '@prisma/client';
 import {
   clearOrganizationOperations,
-  fillParquetDemo,
-  restoreDemoOrganization,
   wipeDemoProductFiles,
 } from '../demo/parquet-demo';
+import { fillDuboyarSeed, restoreDuboyarOrganization } from '../demo/duboyar-seed';
 
 const publicSelect = {
   id: true,
@@ -120,22 +119,15 @@ export class OrganizationService {
       people.find((item) => item.role === UserRole.ADMIN) ??
       people[0];
     if (!owner) throw new BadRequestException({ error: 'no_users' });
-    const manager = people.find((item) => item.email === 'manager@faverum.local') ?? people.find((item) => item.id !== owner.id) ?? owner;
-    const shop = people.find((item) => item.email === 'shop@faverum.local') ?? owner;
-    const store = people.find((item) => item.email === 'store@faverum.local') ?? owner;
 
     await wipeDemoProductFiles(user.organizationId);
     await this.prisma.$transaction(
       async (tx) => {
         await clearOrganizationOperations(tx, user.organizationId);
-        await restoreDemoOrganization(tx, user.organizationId);
-        await fillParquetDemo(tx, {
+        await restoreDuboyarOrganization(tx, user.organizationId);
+        await fillDuboyarSeed(tx, {
           organizationId: user.organizationId,
           ownerId: owner.id,
-          managerId: manager.id,
-          shopId: shop.id,
-          storeId: store.id,
-          shopName: shop.name,
         });
       },
       { timeout: 240_000 },

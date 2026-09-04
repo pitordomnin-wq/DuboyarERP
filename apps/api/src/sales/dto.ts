@@ -17,10 +17,10 @@ export class CreateDealDto {
   @IsString()
   counterpartyId!: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(300)
-  title!: string;
+  title?: string;
 
   @IsOptional()
   @IsString()
@@ -63,6 +63,27 @@ export class SendSmsDto {
   @MinLength(1)
   @MaxLength(1000)
   body!: string;
+}
+
+export class ShipDealDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  itemIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  shippedAt?: string;
+}
+
+export class CreateUpdDto {
+  @IsOptional()
+  @IsDateString()
+  shippedAt?: string;
 }
 
 export class ListDealsQueryDto {

@@ -2,25 +2,31 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { CHANNEL_LABEL, DEAL_STATUS_LABEL, type DealChannel, type DealStatus } from '@/lib/deal-columns'
 import {
   createDealInvoice,
+  createDealUpd,
   deleteDeal,
   deleteDealDocument,
+  downloadDealDocument,
   fetchDeal,
+  fetchDealDocumentBlob,
   sendDealDocument,
   sendDealMessage,
   sendDealSms,
+  shipDeal,
   startDealCall,
   updateDealStatus,
   type DealDetail,
+  type DealDocument,
 } from '@/lib/sales-api'
 import { sendDealItemToProduction, fetchProductionTypes, RELEASE_TYPE_LABEL, type ProductionReleaseType, type ProductionTypeSummary } from '@/lib/production-api'
 
-const TABS = ['info', 'chat', 'docs', 'production', 'history'] as const
+const TABS = ['info', 'chat', 'docs', 'production', 'shipment', 'history'] as const
 type Tab = (typeof TABS)[number]
 const TAB_LABEL: Record<Tab, string> = {
   info: 'Информация',
   chat: 'Чат',
   docs: 'Документы',
   production: 'Производство',
+  shipment: 'Отгрузка',
   history: 'История',
 }
 
@@ -79,6 +85,7 @@ export function DealPanel({
           {tab === 'chat' ? <ChatTab deal={deal} onChange={onChange} /> : null}
           {tab === 'docs' ? <DocsTab deal={deal} onChange={onChange} /> : null}
           {tab === 'production' ? <ProductionTab deal={deal} onChange={onChange} /> : null}
+          {tab === 'shipment' ? <ShipmentTab deal={deal} onChange={onChange} /> : null}
           {tab === 'history' ? (
             <ul className="flex flex-col gap-3">
               {deal.events.map((event) => (
@@ -174,7 +181,9 @@ function InfoTab({
             <tr key={item.id}>
               <td className="border border-slate-300 px-2 py-1.5">
                 {item.name}
-                {item.productionStatus === 'IN_WAREHOUSE' ? (
+                {item.productionStatus === 'SHIPPED' ? (
+                  <span className="mt-0.5 block text-xs text-secondary">отгружено клиенту</span>
+                ) : item.productionStatus === 'IN_WAREHOUSE' ? (
                   <span className="mt-0.5 block text-xs text-secondary">произведена, на складе</span>
                 ) : item.productionStatus === 'IN_PRODUCTION' ? (
                   <span className="mt-0.5 block text-xs text-secondary">в производстве</span>
@@ -343,7 +352,7 @@ function ChatTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDe
 }
 
 function DocsTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDetail) => void }) {
-  const [previewId, setPreviewId] = useState<string | null>(null)
+  const [previewDoc, setPreviewDoc] = useState<DealDocument | null>(null)
   const [sendId, setSendId] = useState<string | null>(null)
 
   return (
@@ -366,8 +375,29 @@ function DocsTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDe
                 {doc.sentAt ? <span className="text-xs text-secondary">отправлено заказчику</span> : null}
               </span>
               <span className="flex shrink-0 gap-3">
-                <button type="button" className="text-secondary hover:text-foreground" onClick={() => setPreviewId(doc.id)}>
+                <button
+                  type="button"
+                  className="text-secondary hover:text-foreground"
+                  onClick={() => setPreviewDoc(doc)}
+                >
                   Посмотреть
+                </button>
+                <button
+                  type="button"
+                  className="text-secondary hover:text-foreground"
+                  onClick={() =>
+                    void downloadDealDocument(
+                      deal.id,
+                      doc.id,
+                      doc.kind === 'UPD_XLSX'
+                        ? `${doc.title}.xlsx`
+                        : doc.kind === 'UPD_PDF'
+                          ? `${doc.title}.pdf`
+                          : `${doc.title}.html`,
+                    )
+                  }
+                >
+                  Скачать
                 </button>
                 {doc.sentAt ? null : (
                   <>
@@ -389,13 +419,13 @@ function DocsTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDe
         )}
       </ul>
 
-      {previewId ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button type="button" className="glass-scrim absolute inset-0" onClick={() => setPreviewId(null)} />
-          <div className="glass-strong relative z-10 h-[90vh] w-full max-w-3xl overflow-hidden rounded-3xl">
-            <iframe title="Документ" className="h-full w-full" src={`/v1/deals/${deal.id}/documents/${previewId}/file`} />
-          </div>
-        </div>
+      {previewDoc ? (
+        <DocumentPreviewModal
+          dealId={deal.id}
+          doc={previewDoc}
+          allDocs={deal.documents}
+          onClose={() => setPreviewDoc(null)}
+        />
       ) : null}
 
       {sendId ? (
@@ -476,8 +506,10 @@ function ProductionTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: 
             <p className="mt-1 text-xs text-secondary">
               {item.quantity.toLocaleString('ru-RU')} {item.unit}
             </p>
-            {item.productionStatus === 'IN_WAREHOUSE' ? (
-              <p className="mt-2 text-sm text-foreground">Продукция произведена и находится на складе</p>
+            {item.productionStatus === 'SHIPPED' ? (
+              <p className="mt-2 text-sm text-foreground">Отгружено клиенту — см. вкладку «Отгрузка»</p>
+            ) : item.productionStatus === 'IN_WAREHOUSE' ? (
+              <p className="mt-2 text-sm text-foreground">На складе — отгрузка во вкладке «Отгрузка»</p>
             ) : item.productionStatus === 'IN_PRODUCTION' ? (
               <p className="mt-2 text-sm text-secondary">В производстве</p>
             ) : types === null ? (
@@ -519,6 +551,312 @@ function ProductionTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: 
         )
       })}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+    </div>
+  )
+}
+
+function ShipmentTab({ deal, onChange }: { deal: DealDetail; onChange: (deal: DealDetail) => void }) {
+  const [shippedAt, setShippedAt] = useState(() => new Date().toISOString().slice(0, 10))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [previewDoc, setPreviewDoc] = useState<DealDocument | null>(null)
+
+  const ready = deal.items.filter((item) => item.productionStatus === 'IN_WAREHOUSE')
+  const shipped = deal.items.filter((item) => item.productionStatus === 'SHIPPED')
+  const updDocs = deal.documents.filter((doc) => doc.kind === 'UPD_XLSX' || doc.kind === 'UPD_PDF')
+
+  async function ship(itemIds?: string[]) {
+    setBusy(true)
+    setError(null)
+    try {
+      onChange(
+        await shipDeal(deal.id, {
+          itemIds,
+          shippedAt: new Date(`${shippedAt}T12:00:00`).toISOString(),
+        }),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось отгрузить')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function regenerateUpd() {
+    setBusy(true)
+    setError(null)
+    try {
+      onChange(
+        await createDealUpd(deal.id, {
+          shippedAt: new Date(`${shippedAt}T12:00:00`).toISOString(),
+        }),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сформировать УПД')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5 text-sm">
+      <div className="rounded-md border-2 border-slate-300 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Параметры отгрузки</p>
+        <label className="mt-3 block text-xs font-medium text-secondary">
+          Дата отгрузки
+          <input
+            type="date"
+            value={shippedAt}
+            onChange={(event) => setShippedAt(event.target.value)}
+            className="mt-1 h-10 w-full max-w-xs rounded-md border-2 border-slate-300 px-3 text-sm"
+          />
+        </label>
+        <div className="mt-3 space-y-1 text-sm">
+          <p>
+            <span className="text-secondary">Грузополучатель: </span>
+            {deal.counterparty.legalName || deal.counterparty.name}
+          </p>
+          <p>
+            <span className="text-secondary">Адрес: </span>
+            {deal.counterparty.legalAddress || '—'}
+          </p>
+          <p>
+            <span className="text-secondary">ИНН/КПП: </span>
+            {[deal.counterparty.inn, deal.counterparty.kpp].filter(Boolean).join(' / ') || '—'}
+          </p>
+          <p>
+            <span className="text-secondary">Основание: </span>
+            Сделка «{deal.title}»
+          </p>
+          <p className="text-xs text-secondary">
+            Статус сделки: {DEAL_STATUS_LABEL[deal.status]}. После полной отгрузки — «Доставлено», при частичной —
+            «Передано в доставку».
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-secondary">К отгрузке</p>
+          {ready.length > 0 ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void ship()}
+              className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60"
+            >
+              Отгрузить всё ({ready.length})
+            </button>
+          ) : null}
+        </div>
+        {ready.length === 0 ? (
+          <p className="text-secondary">Нет позиций на складе. Сначала завершите производство.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {ready.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border-2 border-slate-300 p-3">
+                <div>
+                  <p className="font-medium text-foreground">{item.name}</p>
+                  <p className="text-xs text-secondary">
+                    {item.quantity.toLocaleString('ru-RU')} {item.unit}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void ship([item.id])}
+                  className="h-10 rounded-md bg-primary px-4 text-sm font-semibold text-on-primary disabled:opacity-60"
+                >
+                  Отгрузить
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-secondary">Отгружено</p>
+        {shipped.length === 0 ? (
+          <p className="text-secondary">Пока ничего не отгружено</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {shipped.map((item) => (
+              <li key={item.id} className="rounded-md border-2 border-slate-300 p-3">
+                <p className="font-medium text-foreground">{item.name}</p>
+                <p className="text-xs text-secondary">
+                  {item.quantity.toLocaleString('ru-RU')} {item.unit} · отгружено клиенту
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-secondary">УПД</p>
+          {shipped.length > 0 ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void regenerateUpd()}
+              className="h-10 rounded-md border-2 border-slate-300 bg-white px-4 text-sm disabled:opacity-60"
+            >
+              Сформировать УПД снова
+            </button>
+          ) : null}
+        </div>
+        {updDocs.length === 0 ? (
+          <p className="text-secondary">После отгрузки здесь появятся Excel и PDF</p>
+        ) : (
+          <ul className="divide-y divide-line rounded-md border-2 border-slate-300">
+            {updDocs.map((doc) => (
+              <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <span>
+                  <span className="block text-foreground">{doc.title}</span>
+                  <span className="text-xs text-secondary">{formatDate(doc.createdAt)}</span>
+                </span>
+                <span className="flex shrink-0 gap-3">
+                  <button
+                    type="button"
+                    className="text-sm text-secondary hover:text-foreground"
+                    onClick={() => setPreviewDoc(doc)}
+                  >
+                    Посмотреть
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm text-secondary hover:text-foreground"
+                    onClick={() =>
+                      void downloadDealDocument(
+                        deal.id,
+                        doc.id,
+                        doc.kind === 'UPD_XLSX' ? `${doc.title}.xlsx` : `${doc.title}.pdf`,
+                      ).catch(() => setError('Не удалось скачать файл'))
+                    }
+                  >
+                    Скачать
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {previewDoc ? (
+        <DocumentPreviewModal
+          dealId={deal.id}
+          doc={previewDoc}
+          allDocs={deal.documents}
+          onClose={() => setPreviewDoc(null)}
+        />
+      ) : null}
+
+      {error ? <p className="text-destructive">{error}</p> : null}
+    </div>
+  )
+}
+
+function DocumentPreviewModal({
+  dealId,
+  doc,
+  allDocs,
+  onClose,
+}: {
+  dealId: string
+  doc: DealDocument
+  allDocs: DealDocument[]
+  onClose: () => void
+}) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  // Excel cannot render in iframe — show companion PDF from the same UPD pair.
+  const previewTarget =
+    doc.kind === 'UPD_XLSX'
+      ? allDocs.find(
+          (item) =>
+            item.kind === 'UPD_PDF' &&
+            item.title.replace(/\s*\(PDF\)\s*$/i, '') === doc.title.replace(/\s*\(Excel\)\s*$/i, ''),
+        ) ??
+        allDocs.find((item) => item.kind === 'UPD_PDF') ??
+        doc
+      : doc
+
+  useEffect(() => {
+    let objectUrl: string | null = null
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+
+    void fetchDealDocumentBlob(dealId, previewTarget.id)
+      .then(({ blob, mimeType }) => {
+        if (cancelled) return
+        if (previewTarget.kind === 'UPD_XLSX' && !mimeType.includes('pdf') && !mimeType.includes('html')) {
+          setError('Excel нельзя показать в браузере — откройте PDF или скачайте файл.')
+          setLoading(false)
+          return
+        }
+        objectUrl = URL.createObjectURL(blob)
+        setUrl(objectUrl)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Не удалось открыть документ')
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [dealId, previewTarget.id, previewTarget.kind])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <button type="button" className="glass-scrim absolute inset-0" onClick={onClose} aria-label="Закрыть" />
+      <div className="glass-strong relative z-10 flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{doc.title}</p>
+            {previewTarget.id !== doc.id ? (
+              <p className="text-xs text-secondary">Просмотр PDF-версии того же УПД</p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              className="h-9 rounded-md border-2 border-slate-300 px-3 text-sm"
+              onClick={() =>
+                void downloadDealDocument(
+                  dealId,
+                  doc.id,
+                  doc.kind === 'UPD_XLSX'
+                    ? `${doc.title}.xlsx`
+                    : doc.kind === 'UPD_PDF'
+                      ? `${doc.title}.pdf`
+                      : `${doc.title}.html`,
+                )
+              }
+            >
+              Скачать
+            </button>
+            <button type="button" className="h-9 px-2 text-sm text-secondary" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 bg-white">
+          {loading ? <p className="p-4 text-sm text-secondary">Загрузка…</p> : null}
+          {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
+          {url ? <iframe title={doc.title} className="h-full w-full border-0" src={url} /> : null}
+        </div>
+      </div>
     </div>
   )
 }

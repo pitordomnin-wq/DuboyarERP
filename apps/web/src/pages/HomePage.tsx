@@ -644,12 +644,14 @@ function greet(name: string) {
   const hour = Number(
     new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', hour: 'numeric', hour12: false }).format(new Date()),
   )
-  const first = name.trim().split(/\s+/)[0] || ''
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  // "Домнин Петр" → greet by the given name (second word).
+  const firstName = parts.length >= 2 ? parts[1] : parts[0] || ''
   let hello = 'Добрый день'
   if (hour < 5 || hour >= 23) hello = 'Доброй ночи'
   else if (hour < 12) hello = 'Доброе утро'
   else if (hour >= 18) hello = 'Добрый вечер'
-  return first ? `${hello}, ${first}` : hello
+  return firstName ? `${hello}, ${firstName}` : hello
 }
 
 function formatToday() {

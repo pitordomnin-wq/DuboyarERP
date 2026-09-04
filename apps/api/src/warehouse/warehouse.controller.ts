@@ -117,6 +117,30 @@ export class ProductGroupsController {
     return this.warehouse.createGroup(user, body.name, body.keywords ?? []);
   }
 
+  @Get(':id')
+  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.warehouse.getGroup(user, id);
+  }
+
+  @Post(':id/products')
+  addProducts(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { productIds: string[] },
+  ) {
+    return this.warehouse.addProductsToGroup(user, id, body.productIds ?? []);
+  }
+
+  @Delete(':id/products/:productId')
+  @HttpCode(204)
+  async removeProduct(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('productId') productId: string,
+  ) {
+    await this.warehouse.removeProductFromGroup(user, id, productId);
+  }
+
   @Patch(':id')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: UpdateProductGroupDto) {
     return this.warehouse.updateGroup(user, id, body);

@@ -70,18 +70,33 @@ export function fetchProducts(query?: string, kind?: ProductListKind) {
   return request<Product[]>(`/v1/products${q ? `?${q}` : ''}`)
 }
 
-export function createProduct(input: ProductInput) {
-  return request<Product>('/v1/products', {
-    method: 'POST',
+async function upsertProduct(path: string, method: 'POST' | 'PATCH', input: ProductInput) {
+  const res = await fetch(path, {
+    method,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   })
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: string | { error?: string } | string[]
+    }
+    const code =
+      typeof payload.message === 'object' && payload.message && !Array.isArray(payload.message)
+        ? payload.message.error
+        : payload.error
+    throw new Error(code ?? 'request_failed')
+  }
+  return (await res.json()) as Product
+}
+
+export function createProduct(input: ProductInput) {
+  return upsertProduct('/v1/products', 'POST', input)
 }
 
 export function updateProduct(id: string, input: ProductInput) {
-  return request<Product>(`/v1/products/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(input),
-  })
+  return upsertProduct(`/v1/products/${id}`, 'PATCH', input)
 }
 
 export function setProductCatalog(id: string, inCatalog: boolean) {

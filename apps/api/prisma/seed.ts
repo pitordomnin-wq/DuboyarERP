@@ -1,5 +1,6 @@
 import { PrismaClient, LicenseStatus, AccessStatus, UserRole } from '@prisma/client'
-import { DEMO_ORG, fillParquetDemo, wipeDemoProductFiles } from '../src/demo/parquet-demo'
+import { DUBOYAR_ORG, fillDuboyarSeed } from '../src/demo/duboyar-seed'
+import { wipeDemoProductFiles } from '../src/demo/parquet-demo'
 import { defaultDealPipelineColumns } from '../src/sales/statuses'
 
 const prisma = new PrismaClient()
@@ -53,7 +54,7 @@ async function main() {
 
   const live = await prisma.organization.create({
     data: {
-      ...DEMO_ORG,
+      ...DUBOYAR_ORG,
       licenseStatus: LicenseStatus.ACTIVE,
     },
   })
@@ -80,11 +81,11 @@ async function main() {
       {
         organizationId: live.id,
         email: 'owner@faverum.local',
-        name: 'Анна Ковалёва',
+        name: 'Домнин Петр',
         role: UserRole.ADMIN,
         roleId: adminRole.id,
         status: AccessStatus.ACTIVE,
-        mailSignature: 'С уважением,\nАнна Ковалёва\nГенеральный директор\nДубрава Паркет',
+        mailSignature: 'С уважением,\nДомнин Петр\nДубовый Яръ',
         jobTitle: 'Генеральный директор',
       },
       {
@@ -94,7 +95,7 @@ async function main() {
         role: UserRole.MEMBER,
         roleId: memberRole.id,
         status: AccessStatus.ACTIVE,
-        mailSignature: 'С уважением,\nИван Петров\nОтдел продаж\nДубрава Паркет',
+        mailSignature: 'С уважением,\nИван Петров\nОтдел продаж\nДубовый Яръ',
         jobTitle: 'Менеджер по продажам',
       },
       {
@@ -104,7 +105,7 @@ async function main() {
         role: UserRole.MEMBER,
         roleId: memberRole.id,
         status: AccessStatus.ACTIVE,
-        mailSignature: 'С уважением,\nПавел Скворцов\nНачальник цеха\nДубрава Паркет',
+        mailSignature: 'С уважением,\nПавел Скворцов\nНачальник цеха\nДубовый Яръ',
         jobTitle: 'Начальник цеха',
       },
       {
@@ -114,7 +115,7 @@ async function main() {
         role: UserRole.MEMBER,
         roleId: memberRole.id,
         status: AccessStatus.ACTIVE,
-        mailSignature: 'С уважением,\nЕлена Новикова\nСклад\nДубрава Паркет',
+        mailSignature: 'С уважением,\nЕлена Новикова\nСклад\nДубовый Яръ',
         jobTitle: 'Кладовщик',
       },
       {
@@ -130,17 +131,10 @@ async function main() {
   })
 
   const owner = await prisma.user.findUniqueOrThrow({ where: { email: 'owner@faverum.local' } })
-  const manager = await prisma.user.findUniqueOrThrow({ where: { email: 'manager@faverum.local' } })
-  const shop = await prisma.user.findUniqueOrThrow({ where: { email: 'shop@faverum.local' } })
-  const store = await prisma.user.findUniqueOrThrow({ where: { email: 'store@faverum.local' } })
 
-  await fillParquetDemo(prisma, {
+  await fillDuboyarSeed(prisma, {
     organizationId: live.id,
     ownerId: owner.id,
-    managerId: manager.id,
-    shopId: shop.id,
-    storeId: store.id,
-    shopName: shop.name,
   })
 
   const paused = await prisma.organization.create({

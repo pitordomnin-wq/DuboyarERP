@@ -51,6 +51,7 @@ export async function createWriteoffFifo(
     createdById: string;
     purchaseId?: string | null;
     productionJobId?: string | null;
+    dealId?: string | null;
   },
 ) {
   const need = roundQty(data.quantity);
@@ -73,6 +74,7 @@ export async function createWriteoffFifo(
       createdById: data.createdById,
       purchaseId: data.purchaseId ?? null,
       productionJobId: data.productionJobId ?? null,
+      dealId: data.dealId ?? null,
     },
   });
 
@@ -92,6 +94,54 @@ export async function createWriteoffFifo(
   }
 
   return { ok: true as const, movement };
+}
+
+/** Reverse stock movements created for a production job stage (by note). */
+export async function reverseProductionMovements(
+  tx: Db,
+  params: { productionJobId: string; note: string },
+) {
+  const movements = await tx.stockMovement.findMany({
+    where: { productionJobId: params.productionJobId, note: params.note },
+    include: {
+      allocations: true,
+      lotsCreated: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  for (const movement of movements) {
+    if (movement.type === StockMovementType.WRITEOFF) {
+      for (const allocation of movement.allocations) {
+        await tx.stockLot.update({
+          where: { id: allocation.lotId },
+          data: { quantity: { increment: allocation.quantity } },
+        });
+      }
+      await tx.stockMovementAllocation.deleteMany({ where: { movementId: movement.id } });
+      await tx.stockMovement.delete({ where: { id: movement.id } });
+      continue;
+    }
+
+    if (movement.type === StockMovementType.RECEIPT) {
+      const lot = movement.lotsCreated[0];
+      if (!lot) {
+        await tx.stockMovement.delete({ where: { id: movement.id } });
+        continue;
+      }
+      if (roundQty(lot.quantity) + 1e-9 < roundQty(movement.quantity)) {
+        throw new Error('receipt_lot_consumed');
+      }
+      const laterAllocations = await tx.stockMovementAllocation.count({
+        where: { lotId: lot.id },
+      });
+      if (laterAllocations > 0) {
+        throw new Error('receipt_lot_consumed');
+      }
+      await tx.stockLot.delete({ where: { id: lot.id } });
+      await tx.stockMovement.delete({ where: { id: movement.id } });
+    }
+  }
 }
 
 /** FIFO across multiple products (group members). Returns per-product writeoff quantities. */

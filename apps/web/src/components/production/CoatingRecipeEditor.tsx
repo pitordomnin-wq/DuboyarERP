@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   LKP_CATEGORY_LABEL,
   type LkpMaterialCategory,
@@ -26,6 +26,10 @@ export function CoatingRecipeEditor({
   onChange: (rows: ProductCoatingRecipeLine[]) => void
 }) {
   const [rows, setRows] = useState(() => defaultLines(initial))
+
+  useEffect(() => {
+    onChange(defaultLines(initial))
+  }, [])
 
   function patch(index: number, patch: Partial<ProductCoatingRecipeLine>) {
     setRows((current) => {

@@ -1,10 +1,19 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user';
 import type { AuthUser } from '../auth/auth-user';
 import { SalesService } from './sales.service';
-import { CreateDealDto, CreateDealMessageDto, ListDealsQueryDto, SendDocumentDto, SendSmsDto, UpdateDealStatusDto } from './dto';
+import {
+  CreateDealDto,
+  CreateDealMessageDto,
+  CreateUpdDto,
+  ListDealsQueryDto,
+  SendDocumentDto,
+  SendSmsDto,
+  ShipDealDto,
+  UpdateDealStatusDto,
+} from './dto';
 
 @Controller('deals')
 @UseGuards(AuthGuard)
@@ -37,6 +46,11 @@ export class SalesController {
     return this.sales.updateStatus(user, id, body);
   }
 
+  @Post(':id/ship')
+  ship(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: ShipDealDto) {
+    return this.sales.ship(user, id, body);
+  }
+
   @Post(':id/messages')
   addMessage(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateDealMessageDto) {
     return this.sales.addMessage(user, id, body);
@@ -57,15 +71,33 @@ export class SalesController {
     return this.sales.createInvoice(user, id);
   }
 
+  @Post(':id/documents/upd')
+  createUpd(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateUpdDto) {
+    return this.sales.createUpd(user, id, body);
+  }
+
   @Get(':id/documents/:documentId/file')
-  @Header('Content-Type', 'text/html; charset=utf-8')
   async file(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('documentId') documentId: string,
+    @Query('preview') preview: string | undefined,
     @Res() res: Response,
   ) {
-    const doc = await this.sales.documentFile(user, id, documentId);
+    const doc = await this.sales.documentFile(user, id, documentId, {
+      preview: preview === '1' || preview === 'true',
+    });
+    if (doc.kind === 'file') {
+      const encoded = encodeURIComponent(doc.utfName);
+      res.setHeader('Content-Type', doc.mimeType);
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="${doc.asciiName}"; filename*=UTF-8''${encoded}`,
+      );
+      res.sendFile(doc.path);
+      return;
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(doc.html);
   }
 

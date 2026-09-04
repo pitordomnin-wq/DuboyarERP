@@ -235,10 +235,11 @@ function CreateDealModal({
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const title = String(data.get('title') ?? '').trim()
     const counterpartyId = String(data.get('counterpartyId') ?? '')
-    if (!title || !counterpartyId || items.length === 0) {
-      setError('Заполните контрагента, название и хотя бы одну позицию из каталога')
+    const counterpartyName = counterparties.find((item) => item.id === counterpartyId)?.name ?? ''
+    const title = String(data.get('title') ?? '').trim() || counterpartyName
+    if (!counterpartyId || !title || items.length === 0) {
+      setError('Заполните контрагента и хотя бы одну позицию из каталога')
       return
     }
     setBusy(true)
@@ -281,7 +282,11 @@ function CreateDealModal({
           </label>
           <label className="text-xs font-medium text-secondary">
             Название
-            <input name="title" required className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm" />
+            <input
+              name="title"
+              placeholder="Если пусто — имя контрагента"
+              className="mt-1 h-10 w-full rounded-md border-2 border-slate-300 px-3 text-sm"
+            />
           </label>
           <label className="text-xs font-medium text-secondary">
             Описание
@@ -306,13 +311,14 @@ function CreateDealModal({
                     </div>
                     <input
                       type="number"
-                      min="0.001"
-                      step="any"
+                      min={item.unit.toLowerCase().includes('упак') ? 1 : 0.001}
+                      step={item.unit.toLowerCase().includes('упак') ? 1 : 'any'}
                       value={item.quantity}
                       onChange={(event) => setItemQty(item.productId, Number(event.target.value) || 0)}
                       className="h-9 w-20 rounded-md border-2 border-slate-300 px-2 text-sm"
                       aria-label={`Количество ${item.name}`}
                     />
+                    <span className="w-12 shrink-0 text-xs text-secondary">{item.unit}</span>
                     <button
                       type="button"
                       onClick={() => setItemQty(item.productId, 0)}

@@ -1,7 +1,7 @@
 import { request } from '@/lib/api'
 
 export type ProductionStageStatus = 'TO_START' | 'IN_PROGRESS'
-export type DealItemProductionStatus = 'NONE' | 'IN_PRODUCTION' | 'IN_WAREHOUSE'
+export type DealItemProductionStatus = 'NONE' | 'IN_PRODUCTION' | 'IN_WAREHOUSE' | 'SHIPPED'
 export type ProductionReleaseType = 'DECK' | 'HERRINGBONE'
 export type StageInputMode = 'PRODUCT' | 'GROUP' | 'LKP_RECIPE' | 'KEYWORD'
 export type StageQuantityBasis = 'M2' | 'PIECE' | 'PACKAGE' | 'M2_ORIGINAL'
@@ -53,6 +53,17 @@ export const LAYOUT_ROLE_LABEL: Record<LayoutMaterialRole, string> = {
   BOX_DECK: 'Короб палуба',
   BOX_HERRINGBONE: 'Короб ёлка',
   PACK_UNIVERSAL: 'Упаковка (1 шт/упак)',
+}
+
+export function layoutRoleApplies(role: LayoutMaterialRole, releaseType: ProductionReleaseType): boolean {
+  if (role === 'VENEER_OAK' || role === 'PACK_UNIVERSAL') return true
+  if (releaseType === 'DECK') return role === 'VENEER_DECK' || role === 'BOX_DECK'
+  return role === 'VENEER_HERRINGBONE' || role === 'BOX_HERRINGBONE'
+}
+
+export function inputAppliesToRelease(input: ProductionBomLine, releaseType: ProductionReleaseType): boolean {
+  if (input.layoutRole) return layoutRoleApplies(input.layoutRole, releaseType)
+  return true
 }
 
 export type ProductionStageSummary = {
@@ -233,24 +244,74 @@ export function sendDealItemToProduction(dealItemId: string, releaseType?: Produ
   })
 }
 
-async function postJobAction(id: string, action: 'start' | 'complete') {
+export type ProductionWriteoff = {
+  id: string
+  quantity: number
+  note: string | null
+  createdAt: string
+  product: { id: string; name: string; unit: string }
+  createdBy: { id: string; name: string }
+}
+
+export type ProductionWriteoffPreview = {
+  slotKey?: string
+  productId: string
+  productName: string
+  unit: string
+  quantity: number
+  groupName?: string
+  groupId?: string | null
+  label?: string
+  candidates?: {
+    productId: string
+    productName: string
+    unit: string
+    quantity: number
+  }[]
+}
+
+export function fetchJobWriteoffs(jobId: string) {
+  return request<ProductionWriteoff[]>(`/v1/production/jobs/${jobId}/writeoffs`)
+}
+
+export function previewJobWriteoffs(jobId: string) {
+  return request<ProductionWriteoffPreview[]>(`/v1/production/jobs/${jobId}/preview-writeoffs`)
+}
+
+async function postJobAction(
+  id: string,
+  action: 'start' | 'complete' | 'rollback',
+  body?: { writeoffs?: { productId: string; quantity: number }[] },
+) {
   const res = await fetch(`/v1/production/jobs/${id}/${action}`, {
     method: 'POST',
     credentials: 'include',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; name?: string }
-    if (body.error === 'insufficient_stock') {
-      throw new Error(`Недостаточно на складе: ${body.name ?? 'сырьё'}`)
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string
+      name?: string
+      message?: string
     }
-    if (body.error === 'material_not_found') {
-      throw new Error(`Материал не найден на складе: ${body.name ?? ''}`)
+    if (payload.error === 'insufficient_stock') {
+      throw new Error(`Недостаточно на складе: ${payload.name ?? 'сырьё'}`)
     }
-    if (body.error === 'type_not_configured') {
+    if (payload.error === 'material_not_found') {
+      throw new Error(`Материал не найден на складе: ${payload.name ?? ''}`)
+    }
+    if (payload.error === 'type_not_configured') {
       throw new Error('Этапы не настроены в панели управления')
     }
-    if (body.error === 'empty_group') {
-      throw new Error(`В группе нет товаров: ${body.name ?? ''}`)
+    if (payload.error === 'empty_group') {
+      throw new Error(`В группе нет товаров: ${payload.name ?? ''}`)
+    }
+    if (payload.error === 'cannot_rollback') {
+      throw new Error(payload.message ?? 'Нельзя откатить действие')
+    }
+    if (payload.error === 'nothing_to_rollback') {
+      throw new Error('Нечего откатывать')
     }
     throw new Error('request_failed')
   }
@@ -261,6 +322,13 @@ export function startProductionJob(id: string) {
   return postJobAction(id, 'start')
 }
 
-export function completeProductionJob(id: string) {
-  return postJobAction(id, 'complete')
+export function rollbackProductionJob(id: string) {
+  return postJobAction(id, 'rollback')
+}
+
+export function completeProductionJob(
+  id: string,
+  writeoffs?: { productId: string; quantity: number }[],
+) {
+  return postJobAction(id, 'complete', writeoffs ? { writeoffs } : undefined)
 }

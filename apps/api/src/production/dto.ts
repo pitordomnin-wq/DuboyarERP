@@ -144,6 +144,25 @@ export class CreateProductionJobDto {
   releaseType?: ProductionReleaseType;
 }
 
+export class CompleteJobWriteoffDto {
+  @IsString()
+  @MinLength(1)
+  productId!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.000001)
+  quantity!: number;
+}
+
+export class CompleteJobDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CompleteJobWriteoffDto)
+  writeoffs?: CompleteJobWriteoffDto[];
+}
+
 export class UpsertLkpNormDto {
   @IsEnum(LkpMaterialCategory)
   category!: LkpMaterialCategory;

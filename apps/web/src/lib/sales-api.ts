@@ -8,7 +8,7 @@ export type DealItem = {
   quantity: number
   unit: string
   price: number
-  productionStatus: 'NONE' | 'IN_PRODUCTION' | 'IN_WAREHOUSE'
+  productionStatus: 'NONE' | 'IN_PRODUCTION' | 'IN_WAREHOUSE' | 'SHIPPED'
 }
 
 export type DealSummary = {
@@ -43,6 +43,8 @@ export type DealDocument = {
   kind: string
   createdAt: string
   sentAt: string | null
+  mimeType?: string | null
+  size?: number | null
 }
 
 export type DealEvent = {
@@ -58,6 +60,9 @@ export type DealDetail = DealSummary & {
     id: string
     name: string
     legalName: string
+    inn?: string
+    kpp?: string | null
+    legalAddress?: string
     email: string
     telegram: string | null
     phone: string | null
@@ -106,7 +111,7 @@ export function deleteDeal(id: string) {
 
 export function createDeal(input: {
   counterpartyId: string
-  title: string
+  title?: string
   description?: string
   dueDate?: string
   items: { productId: string; quantity: number }[]
@@ -122,6 +127,84 @@ export function updateDealStatus(id: string, status: DealStatus) {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   })
+}
+
+export async function shipDeal(
+  id: string,
+  input?: { itemIds?: string[]; warehouseId?: string; shippedAt?: string },
+) {
+  const res = await fetch(`/v1/deals/${id}/ship`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input ?? {}),
+  })
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string
+      name?: string
+      message?: string | { error?: string; name?: string }
+    }
+    const code = typeof payload.message === 'object' ? payload.message?.error : payload.error
+    const name =
+      typeof payload.message === 'object' ? payload.message?.name : payload.name
+    if (code === 'insufficient_stock') {
+      throw new Error(`Недостаточно на складе: ${name ?? 'товар'}`)
+    }
+    if (code === 'nothing_to_ship') {
+      throw new Error('Нет позиций для отгрузки')
+    }
+    throw new Error('request_failed')
+  }
+  return (await res.json()) as DealDetail
+}
+
+export async function createDealUpd(id: string, input?: { shippedAt?: string }) {
+  const res = await fetch(`/v1/deals/${id}/documents/upd`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input ?? {}),
+  })
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: string | { error?: string }
+    }
+    const code = typeof payload.message === 'object' ? payload.message?.error : payload.error
+    if (code === 'nothing_to_ship') {
+      throw new Error('Нет отгруженных позиций для УПД')
+    }
+    throw new Error('request_failed')
+  }
+  return (await res.json()) as DealDetail
+}
+
+export function dealDocumentUrl(dealId: string, documentId: string, opts?: { preview?: boolean }) {
+  const q = opts?.preview ? '?preview=1' : ''
+  return `/v1/deals/${dealId}/documents/${documentId}/file${q}`
+}
+
+export async function fetchDealDocumentBlob(
+  dealId: string,
+  documentId: string,
+  opts?: { preview?: boolean },
+) {
+  const res = await fetch(dealDocumentUrl(dealId, documentId, opts), { credentials: 'include' })
+  if (!res.ok) throw new Error('request_failed')
+  const mimeType = res.headers.get('content-type') || 'application/octet-stream'
+  const blob = await res.blob()
+  return { blob, mimeType }
+}
+
+export async function downloadDealDocument(dealId: string, documentId: string, filename: string) {
+  const { blob } = await fetchDealDocumentBlob(dealId, documentId)
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 export function sendDealMessage(id: string, channel: DealChannel, body: string) {

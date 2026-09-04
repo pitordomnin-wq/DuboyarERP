@@ -7,6 +7,7 @@ import { ProductionService } from './production.service';
 import { LkpNormsService } from './lkp-norms.service';
 import {
   CreateProductionJobDto,
+  CompleteJobDto,
   ImportTechCardDto,
   UpsertLkpNormsDto,
   UpsertProductionTypeDto,
@@ -81,13 +82,28 @@ export class ProductionController {
     return this.production.getJob(user, id);
   }
 
+  @Get('jobs/:id/writeoffs')
+  listJobWriteoffs(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.production.listJobWriteoffs(user, id);
+  }
+
+  @Get('jobs/:id/preview-writeoffs')
+  previewJobWriteoffs(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.production.previewJobWriteoffs(user, id);
+  }
+
   @Post('jobs/:id/start')
   startJob(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.production.startJob(user, id);
   }
 
+  @Post('jobs/:id/rollback')
+  rollbackJob(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.production.rollbackJob(user, id);
+  }
+
   @Post('jobs/:id/complete')
-  completeJob(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.production.completeJob(user, id);
+  completeJob(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CompleteJobDto) {
+    return this.production.completeJob(user, id, body);
   }
 }
